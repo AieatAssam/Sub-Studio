@@ -1,0 +1,52 @@
+name: Run Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install agent-browser
+        run: npm install -g agent-browser
+
+      - name: Generate test fixtures
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          mkdir -p tests/fixtures
+          ffmpeg -y -f lavfi -i testsrc=duration=2:size=160x120:rate=10 \
+                 -f lavfi -i sine=frequency=440:duration=2 \
+                 -c:v libx264 -preset ultrafast -crf 40 \
+                 -c:a aac -b:a 24k \
+                 tests/fixtures/short-video.mp4 2>/dev/null
+          ffmpeg -y -f lavfi -i testsrc=duration=2:size=160x120:rate=10 \
+                 -c:v libx264 -preset ultrafast -crf 40 \
+                 -an tests/fixtures/no-audio.mp4 2>/dev/null
+          echo "Not a video" > tests/fixtures/invalid-file.txt
+
+      - name: Start server and run tests
+        run: |
+          python3 -m http.server 8000 --bind 127.0.0.1 &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          sleep 2
+
+          cd tests
+          chmod +x run-all.sh browser/*.test.sh
+          bash run-all.sh --server
+
+          EXIT_CODE=$?
+          kill $SERVER_PID 2>/dev/null || true
+          exit $EXIT_CODE
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: tests/screenshots/
+          retention-days: 7
