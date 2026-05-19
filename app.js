@@ -22,8 +22,8 @@ let FFmpeg, fetchFile, toBlobURL;
 
 async function loadFFmpeg() {
     if (FFmpeg) return;
-    const mod = await import('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');
-    const util = await import('https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js');
+    const mod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');
+    const util = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js');
     FFmpeg = mod.FFmpeg;
     fetchFile = util.fetchFile;
     toBlobURL = util.toBlobURL;
@@ -160,7 +160,7 @@ async function extractAudio(videoFile, onProgress) {
     });
 
     onProgress(8, 'Loading FFmpeg core...');
-    const coreBase = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+    const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
     await ffmpeg.load({
         coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, 'text/javascript'),
         wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
