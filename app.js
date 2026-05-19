@@ -181,18 +181,20 @@ async function extractAudio(videoFile, onProgress) {
         resampled[i] = monoData[idx1] * (1 - frac) + monoData[idx2] * frac;
     }
 
-    onProgress(90, 'Encoding WAV...');
-
-    // Encode to 16-bit PCM WAV (using shared utility)
-    const wavBuffer = encodeWav(resampled, targetRate);
-    const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+    onProgress(90, 'Preparing audio data...');
 
     onProgress(100, 'Audio extracted!');
 
     // Clean up the AudioContext
     await audioCtx.close();
 
-    return blob;
+    // Return raw PCM samples + metadata (skip WAV encoding — Whisper
+    // handles Float32Array directly and WAV blobs may not decode in
+    // all browser environments)
+    return {
+        samples: resampled,
+        sampleRate: targetRate,
+    };
 }
 
 // Fallback: capture audio from a video element using MediaRecorder
@@ -274,7 +276,7 @@ async function captureAudioFromVideo(videoFile, onProgress) {
 
 // ─── Pipeline: AI Transcription ──────────────────────────────────────────────
 
-async function transcribeAudio(audioBlob, onProgress) {
+async function transcribeAudio(audioData, onProgress) {
     onProgress(5, 'Loading AI model (Whisper tiny)...');
     setStatus('loading-model', 5, 'Downloading AI model (~150MB, cached after first use)...');
     await loadTransformers();
@@ -299,7 +301,7 @@ async function transcribeAudio(audioBlob, onProgress) {
     }, 1000);
 
     try {
-        const result = await pipe(audioBlob, {
+        const result = await pipe(audioData.samples, {
             chunk_length_s: 30,
             stride_length_s: 5,
             return_timestamps: true,
@@ -362,14 +364,14 @@ async function runPipeline(videoFile) {
     try {
         // Step 1: Extract audio
         setStatus('extracting', 0, 'Decoding video audio...');
-        const audioBlob = await extractAudio(videoFile, (pct, label) => {
+        const audioData = await extractAudio(videoFile, (pct, label) => {
             setStatus('extracting', pct, label);
         });
 
-        state.audioBlob = audioBlob;
+        state.audioBlob = audioData;
 
         // Step 2: Transcribe
-        const result = await transcribeAudio(audioBlob, (pct, label) => {
+        const result = await transcribeAudio(audioData, (pct, label) => {
             setStatus('transcribing', pct, label);
         });
 
@@ -378,9 +380,10 @@ async function runPipeline(videoFile) {
 
         // If no timestamps (single segment without timing), estimate
         if (state.subtitles.length === 1 && state.subtitles[0].end === 0) {
-            const duration = await estimateAudioDuration(audioBlob);
+            // Estimate from sample count
+            const duration = audioData.samples.length / audioData.sampleRate;
             if (duration > 0) {
-                state.subtitles[0].end = duration;
+                state.subtitles[0].end = Math.round(duration);
             }
         }
 
