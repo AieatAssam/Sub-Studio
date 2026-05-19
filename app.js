@@ -18,17 +18,6 @@ import {
     parseWhisperChunks, estimateDurationFromWav
 } from './subtitle-utils.js';
 
-let FFmpeg, fetchFile, toBlobURL;
-
-async function loadFFmpeg() {
-    if (FFmpeg) return;
-    const mod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');
-    const util = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js');
-    FFmpeg = mod.FFmpeg;
-    fetchFile = util.fetchFile;
-    toBlobURL = util.toBlobURL;
-}
-
 let pipeline;
 async function loadTransformers() {
     if (pipeline) return;
@@ -44,7 +33,7 @@ const state = {
     transcription: null,
     subtitles: null,  // Array of {index, start, end, text}
     currentTime: 0,
-    status: 'idle',   // idle | loading-ffmpeg | extracting | loading-model | transcribing | complete | error
+    status: 'idle',   // idle | extracting | loading-model | transcribing | complete | error
     errorMessage: '',
     progress: 0,
     progressLabel: '',
@@ -110,7 +99,7 @@ function renderStatus() {
 
     // Update status icon based on current operation
     const icons = {
-        'loading-ffmpeg': '🔧',
+        'extracting': '🎵',
         'extracting': '🎵',
         'loading-model': '🧠',
         'transcribing': '✍️',
@@ -133,61 +122,154 @@ function hideError() {
 // ─── Subtitle Format Generators ──────────────────────────────────────────────
 // (imported from subtitle-utils.js)
 
-// ─── Pipeline: Audio Extraction ──────────────────────────────────────────────
+// ─── Pipeline: Audio Extraction (Web Audio API) ──────────────────────────────
+// Extracts 16kHz mono PCM audio from video files using the browser's native
+// decoders. No FFmpeg.wasm or SharedArrayBuffer needed.
 
 async function extractAudio(videoFile, onProgress) {
-    onProgress(5, 'Loading FFmpeg engine...');
-    await loadFFmpeg();
+    onProgress(10, 'Decoding audio via browser...');
 
-    const ffmpeg = new FFmpeg();
-    let lastProgress = 0;
+    // Load the video file into an ArrayBuffer
+    const arrayBuffer = await videoFile.arrayBuffer();
 
-    ffmpeg.on('log', ({ message }) => {
-        // FFmpeg reports progress in log messages
-        const match = message.match(/out_time_us:\s*(\d+)/);
-        if (match) {
-            // We don't know total duration easily, so we use this as incremental
+    // Create an AudioContext and try to decode the audio
+    // Note: decodeAudioData works with most video containers (MP4, WebM, MOV)
+    // because browsers internally extract the audio track.
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    let audioBuffer;
+    try {
+        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+    } catch (decodeErr) {
+        // If direct decode fails, try via a media element (play + capture)
+        onProgress(30, 'Fallback: capturing audio from video playback...');
+        audioBuffer = await captureAudioFromVideo(videoFile, onProgress);
+    }
+
+    onProgress(70, 'Resampling to 16kHz...');
+
+    // Get raw PCM data (mono mix)
+    const numChannels = audioBuffer.numberOfChannels;
+    const originalRate = audioBuffer.sampleRate;
+    const originalLength = audioBuffer.length;
+    const duration = originalLength / originalRate;
+
+    // Mix down to mono if needed
+    let monoData;
+    if (numChannels === 1) {
+        monoData = audioBuffer.getChannelData(0);
+    } else {
+        monoData = new Float32Array(originalLength);
+        for (let ch = 0; ch < numChannels; ch++) {
+            const channelData = audioBuffer.getChannelData(ch);
+            for (let i = 0; i < originalLength; i++) {
+                monoData[i] += channelData[i] / numChannels;
+            }
         }
+    }
+
+    // Resample to 16kHz
+    const targetRate = 16000;
+    const targetLength = Math.floor(duration * targetRate);
+    const resampled = new Float32Array(targetLength);
+    const ratio = originalLength / targetLength;
+    for (let i = 0; i < targetLength; i++) {
+        const srcIdx = i * ratio;
+        const idx1 = Math.floor(srcIdx);
+        const idx2 = Math.min(idx1 + 1, originalLength - 1);
+        const frac = srcIdx - idx1;
+        resampled[i] = monoData[idx1] * (1 - frac) + monoData[idx2] * frac;
+    }
+
+    onProgress(90, 'Encoding WAV...');
+
+    // Encode to 16-bit PCM WAV (using shared utility)
+    const wavBuffer = encodeWav(resampled, targetRate);
+    const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+    onProgress(100, 'Audio extracted!');
+
+    // Clean up the AudioContext
+    await audioCtx.close();
+
+    return blob;
+}
+
+// Fallback: capture audio from a video element using MediaRecorder
+async function captureAudioFromVideo(videoFile, onProgress) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.muted = false;
+        video.playsInline = true;
+        video.crossOrigin = 'anonymous';
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const chunks = [];
+        let timeoutId;
+
+        video.onloadedmetadata = () => {
+            const duration = video.duration;
+            if (!duration || !isFinite(duration)) {
+                reject(new Error('Could not determine video duration'));
+                return;
+            }
+
+            onProgress(40, 'Video loaded, capturing audio...');
+
+            try {
+                const source = audioCtx.createMediaElementSource(video);
+                const dest = audioCtx.createMediaStreamDestination();
+                source.connect(dest);
+
+                const recorder = new MediaRecorder(dest.stream, {
+                    mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                        ? 'audio/webm;codecs=opus'
+                        : 'audio/webm'
+                });
+
+                recorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+
+                recorder.onstop = async () => {
+                    clearTimeout(timeoutId);
+                    const recorded = new Blob(chunks, { type: 'audio/webm' });
+                    onProgress(60, 'Decoding captured audio...');
+                    try {
+                        const buf = await recorded.arrayBuffer();
+                        const decoded = await audioCtx.decodeAudioData(buf);
+                        video.remove();
+                        resolve(decoded);
+                    } catch (decodeErr) {
+                        reject(new Error('Could not decode captured audio: ' + decodeErr.message));
+                    }
+                };
+
+                recorder.start();
+                video.play().catch(reject);
+
+                // Safety timeout (2× video duration + 5s)
+                timeoutId = setTimeout(() => {
+                    if (recorder.state === 'recording') {
+                        recorder.stop();
+                    }
+                }, (duration * 2 + 5) * 1000);
+
+                // Stop when video ends
+                video.onended = () => {
+                    if (recorder.state === 'recording') {
+                        recorder.stop();
+                    }
+                };
+
+            } catch (err) {
+                reject(new Error('MediaRecorder approach failed: ' + err.message));
+            }
+        };
+
+        video.onerror = () => reject(new Error('Could not load video for audio capture'));
+        video.src = URL.createObjectURL(videoFile);
     });
-
-    ffmpeg.on('progress', ({ progress: p }) => {
-        // Some versions report progress events
-        const percent = Math.min(90, 10 + Math.round(p * 80));
-        if (percent > lastProgress) {
-            lastProgress = percent;
-            onProgress(percent, 'Extracting audio track...');
-        }
-    });
-
-    onProgress(8, 'Loading FFmpeg core...');
-    const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
-    await ffmpeg.load({
-        coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-
-    onProgress(12, 'Writing video to virtual filesystem...');
-    const fileData = await fetchFile(videoFile);
-    await ffmpeg.writeFile('input', fileData);
-
-    onProgress(15, 'Running FFmpeg audio extraction...');
-    await ffmpeg.exec([
-        '-i', 'input',
-        '-vn',
-        '-acodec', 'pcm_s16le',
-        '-ar', '16000',
-        '-ac', '1',
-        'audio.wav',
-    ]);
-
-    onProgress(95, 'Reading audio output...');
-    const audioData = await ffmpeg.readFile('audio.wav');
-
-    // Clean up - release the FFmpeg instance
-    // In newer @ffmpeg/ffmpeg we can just let it be GC'd
-
-    onProgress(100, 'Audio extracted successfully!');
-    return new Blob([audioData], { type: 'audio/wav' });
 }
 
 // ─── Pipeline: AI Transcription ──────────────────────────────────────────────
@@ -279,7 +361,7 @@ async function runPipeline(videoFile) {
 
     try {
         // Step 1: Extract audio
-        setStatus('loading-ffmpeg', 0, 'Initializing...');
+        setStatus('extracting', 0, 'Decoding video audio...');
         const audioBlob = await extractAudio(videoFile, (pct, label) => {
             setStatus('extracting', pct, label);
         });
@@ -764,19 +846,6 @@ function resetAll() {
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Register COI service worker for SharedArrayBuffer support
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('coi-serviceworker.js')
-            .then(() => {
-                console.log('✅ COI service worker registered - SharedArrayBuffer enabled');
-            })
-            .catch((err) => {
-                console.warn('⚠️ COI service worker registration failed:', err.message);
-                console.warn('FFmpeg.wasm may not work on this platform without COOP/COEP headers');
-            });
-    } else {
-        console.warn('⚠️ Service workers not supported - FFmpeg.wasm may not work');
-    }
 
     // ─── URL Load handler ──────────────────────────────────────────────
     dom.urlLoadBtn.addEventListener('click', () => {
