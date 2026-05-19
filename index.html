@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SubStudio — AI Subtitles in Your Browser</title>
+    <meta name="description" content="Generate subtitles from any video using AI — all in your browser, nothing uploaded." />
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0f1117;
+            --bg2: #1a1d27;
+            --bg3: #242735;
+            --border: #2a2d3a;
+            --text: #e1e4ed;
+            --text2: #8b8fa6;
+            --accent: #6c63ff;
+            --accent-hover: #7b73ff;
+            --green: #34d399;
+            --orange: #f59e0b;
+            --red: #ef4444;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --shadow: 0 4px 24px rgba(0,0,0,.3);
+        }
+
+        html { font-size: 16px; }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 960px;
+            padding: 24px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* ─── Header ──────────────────────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 12px 0;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -.03em;
+        }
+        .logo-icon { font-size: 1.8rem; }
+        .logo-sub {
+            font-size: .75rem;
+            color: var(--text2);
+            font-weight: 400;
+            letter-spacing: 0;
+        }
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: .8rem;
+            color: var(--text2);
+        }
+        .header-info .badge {
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: var(--bg3);
+            font-size: .7rem;
+            border: 1px solid var(--border);
+        }
+        .header-info .badge.local {
+            background: rgba(52,211,153,.12);
+            border-color: rgba(52,211,153,.3);
+            color: var(--green);
+        }
+
+        /* ─── Upload Zone ─────────────────────────────────────────────── */
+        #upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 60px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all .25s ease;
+            background: var(--bg2);
+            position: relative;
+        }
+        #upload-zone:hover { border-color: var(--accent); background: rgba(108,99,255,.04); }
+        #upload-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(108,99,255,.1);
+            transform: scale(1.01);
+        }
+        #upload-zone .icon { font-size: 3rem; margin-bottom: 12px; }
+        #upload-zone .text {
+            font-size: 1.05rem;
+            color: var(--text2);
+            line-height: 1.5;
+        }
+        #upload-zone .hint {
+            font-size: .8rem;
+            color: var(--text2);
+            opacity: .6;
+            margin-top: 8px;
+        }
+        #file-input { display: none; }
+
+        /* ─── URL Input ───────────────────────────────────────────────── */
+        #url-section {
+            margin-top: -8px;
+        }
+        .url-divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+            font-size: .8rem;
+            color: var(--text2);
+        }
+        .url-divider::before,
+        .url-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+        .url-row {
+            display: flex;
+            gap: 8px;
+        }
+        #url-input {
+            flex: 1;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg2);
+            color: var(--text);
+            font-size: .9rem;
+            font-family: var(--font);
+            outline: none;
+            transition: border-color .2s ease;
+            min-width: 0;
+        }
+        #url-input:focus {
+            border-color: var(--accent);
+        }
+        #url-input::placeholder {
+            color: var(--text2);
+            opacity: .5;
+        }
+        .button-secondary {
+            padding: 10px 20px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--accent);
+            background: transparent;
+            color: var(--accent);
+            font-size: .85rem;
+            cursor: pointer;
+            transition: all .15s ease;
+            font-family: var(--font);
+            white-space: nowrap;
+        }
+        .button-secondary:hover {
+            background: rgba(108,99,255,.1);
+        }
+        .button-secondary:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+        }
+        .button-tertiary {
+            padding: 10px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg2);
+            color: var(--text2);
+            font-size: .85rem;
+            cursor: pointer;
+            transition: all .15s ease;
+            font-family: var(--font);
+            white-space: nowrap;
+        }
+        .button-tertiary:hover {
+            border-color: var(--text2);
+            color: var(--text);
+        }
+        #url-hint {
+            font-size: .78rem;
+            color: var(--text2);
+            opacity: .6;
+            margin-top: 8px;
+        }
+        #url-hint a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        #url-hint a:hover {
+            text-decoration: underline;
+        }
+        #url-loading {
+            font-size: .8rem;
+            color: var(--text2);
+            padding: 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #url-loading .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Video Container ─────────────────────────────────────────── */
+        #video-container {
+            border-radius: var(--radius);
+            overflow: hidden;
+            background: #000;
+            position: relative;
+            aspect-ratio: 16 / 9;
+            max-height: 500px;
+        }
+        #video-container video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: contain;
+        }
+        #current-subtitle {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,.75);
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            text-align: center;
+            max-width: 85%;
+            pointer-events: none;
+            text-shadow: 0 1px 3px rgba(0,0,0,.5);
+            backdrop-filter: blur(4px);
+            transition: opacity .15s ease;
+        }
+
+        /* ─── Progress ────────────────────────────────────────────────── */
+        #progress-section {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+        }
+        .progress-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .progress-header .icon { font-size: 1.3rem; }
+        .progress-header .label {
+            flex: 1;
+            font-size: .9rem;
+            color: var(--text2);
+        }
+        .progress-bar-track {
+            width: 100%;
+            height: 6px;
+            background: var(--bg3);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent), #8b7aff);
+            border-radius: 3px;
+            transition: width .4s ease;
+        }
+
+        /* ─── Error ───────────────────────────────────────────────────── */
+        #error-display {
+            background: rgba(239,68,68,.1);
+            border: 1px solid rgba(239,68,68,.3);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        #error-display .error-icon { font-size: 1.3rem; flex-shrink: 0; }
+        #error-display .error-msg {
+            flex: 1;
+            font-size: .9rem;
+            line-height: 1.5;
+            color: #fca5a5;
+        }
+
+        /* ─── Stats ───────────────────────────────────────────────────── */
+        #stats-section {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 20px;
+        }
+        #stats-content {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px 24px;
+        }
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: .85rem;
+            color: var(--text2);
+        }
+        .stat-icon { font-size: 1rem; }
+
+        /* ─── Result Section ──────────────────────────────────────────── */
+        #result-section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .controls label {
+            font-size: .85rem;
+            color: var(--text2);
+        }
+        .controls select, .controls button, .controls a {
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg3);
+            color: var(--text);
+            font-size: .85rem;
+            cursor: pointer;
+            transition: all .15s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: var(--font);
+        }
+        .controls select:hover, .controls button:hover, .controls a:hover {
+            border-color: var(--accent);
+        }
+        .controls button.primary, .controls a.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .controls button.primary:hover, .controls a.primary:hover {
+            background: var(--accent-hover);
+        }
+        .controls button.ghost {
+            background: transparent;
+            border-color: transparent;
+        }
+        .controls button.ghost:hover {
+            background: var(--bg3);
+            border-color: var(--border);
+        }
+
+        /* ─── Subtitle Editor ─────────────────────────────────────────── */
+        #subtitle-editor {
+            max-height: 360px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg2);
+        }
+        #subtitle-editor::-webkit-scrollbar { width: 6px; }
+        #subtitle-editor::-webkit-scrollbar-track { background: var(--bg2); }
+        #subtitle-editor::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+        .subtitle-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            transition: background .1s ease;
+        }
+        .subtitle-row:last-child { border-bottom: none; }
+        .subtitle-row:hover { background: rgba(108,99,255,.04); }
+        .subtitle-time {
+            flex-shrink: 0;
+            font-size: .78rem;
+            font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace;
+            color: var(--accent);
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background .15s ease;
+            min-width: 140px;
+        }
+        .subtitle-time:hover { background: rgba(108,99,255,.1); }
+        .subtitle-text {
+            flex: 1;
+            background: var(--bg3);
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: .85rem;
+            color: var(--text);
+            font-family: var(--font);
+            transition: border-color .15s ease;
+            outline: none;
+            min-width: 0;
+        }
+        .subtitle-text:focus { border-color: var(--accent); }
+
+        .editor-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .editor-header h3 { font-size: .95rem; font-weight: 600; }
+        .editor-header .count {
+            font-size: .8rem;
+            color: var(--text2);
+            font-weight: 400;
+        }
+
+        /* ─── Footer ──────────────────────────────────────────────────── */
+        footer {
+            margin-top: 40px;
+            padding: 20px 0;
+            text-align: center;
+            font-size: .8rem;
+            color: var(--text2);
+            border-top: 1px solid var(--border);
+            width: 100%;
+        }
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        footer .tech-tags {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        footer .tech-tags span {
+            padding: 2px 10px;
+            border-radius: 20px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            font-size: .72rem;
+        }
+
+        .hidden { display: none !important; }
+
+        /* ─── Responsive ──────────────────────────────────────────────── */
+        @media (max-width: 640px) {
+            .container { padding: 16px 12px; }
+            #upload-zone { padding: 40px 16px; }
+            .url-row { flex-wrap: wrap; }
+            #url-input { min-width: 100%; }
+            .button-secondary, .button-tertiary { flex: 1; text-align: center; }
+            .subtitle-time { min-width: 110px; font-size: .7rem; }
+            .subtitle-text { font-size: .8rem; }
+            .controls { gap: 6px; }
+            .controls select, .controls button, .controls a {
+                padding: 6px 12px;
+                font-size: .8rem;
+            }
+            header .header-info .badge:not(.local) { display: none; }
+            #current-subtitle {
+                font-size: .9rem;
+                bottom: 50px;
+                padding: 6px 14px;
+            }
+            #video-container {
+                aspect-ratio: auto;
+                min-height: 200px;
+            }
+            .stat { font-size: .78rem; }
+        }
+        @media (max-width: 480px) {
+            .logo { font-size: 1.2rem; }
+            .controls { flex-direction: column; align-items: stretch; }
+            .controls select, .controls button, .controls a {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <header>
+            <div class="logo">
+                <span class="logo-icon">🎬</span>
+                <div>
+                    <div>SubStudio</div>
+                    <div class="logo-sub">AI subtitles, zero upload</div>
+                </div>
+            </div>
+            <div class="header-info">
+                <span class="badge local">🔒 100% local</span>
+                <span class="badge">🧠 Whisper AI</span>
+                <span class="badge">⚡ WASM</span>
+            </div>
+        </header>
+
+        <!-- ═══ Upload Zone ═══ -->
+        <div id="upload-zone">
+            <div class="icon">🎥</div>
+            <div class="text" id="drop-text">📁 Drop a video file here or click to browse</div>
+            <div class="hint">Supports MP4, WebM, MOV, AVI, MKV &mdash; up to 2GB</div>
+            <input type="file" id="file-input" accept="video/*" />
+        </div>
+
+        <!-- ═══ URL Input ═══ -->
+        <div id="url-section">
+            <div class="url-divider"><span>or paste a video URL</span></div>
+            <div class="url-row">
+                <input type="url" id="url-input" placeholder="https://example.com/video.mp4" spellcheck="false" autocomplete="url" />
+                <button id="url-load-btn" class="button-secondary">Load</button>
+                <button id="sample-btn" class="button-tertiary" title="Generate a short test audio clip in your browser">🎵 Try sample</button>
+            </div>
+            <div class="hint" id="url-hint">URL must support CORS. Try the <a href="#" id="sample-url-link">sample button</a> to generate a quick test clip.</div>
+        </div>
+
+        <!-- ═══ URL loading indicator ═══ -->
+        <div id="url-loading" class="hidden">
+            <span class="spinner"></span>
+            <span id="url-loading-text">Downloading video...</span>
+        </div>
+
+        <!-- ═══ Error ═══ -->
+        <div id="error-display" class="hidden">
+            <span class="error-icon">⚠️</span>
+            <span class="error-msg" id="error-message"></span>
+        </div>
+
+        <!-- ═══ Progress ═══ -->
+        <div id="progress-section" class="hidden">
+            <div class="progress-header">
+                <span class="icon" id="status-icon">🔄</span>
+                <span class="label" id="progress-label">Processing...</span>
+            </div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="progress-bar"></div>
+            </div>
+        </div>
+
+        <!-- ═══ Video Preview ═══ -->
+        <div id="video-container" class="hidden">
+            <video id="video-preview" controls preload="metadata">
+                <track id="subtitle-track" kind="subtitles" srclang="en" label="AI Subtitles" default />
+            </video>
+            <div id="current-subtitle"></div>
+        </div>
+
+        <!-- ═══ Stats ═══ -->
+        <div id="stats-section" class="hidden">
+            <div id="stats-content"></div>
+        </div>
+
+        <!-- ═══ Result Section ═══ -->
+        <div id="result-section" class="hidden">
+            <div class="editor-header">
+                <h3>📝 Subtitles <span class="count" id="subtitle-count"></span></h3>
+                <div class="controls">
+                    <button class="ghost" id="clear-btn">🔄 Start over</button>
+                </div>
+            </div>
+            <div id="subtitle-editor"></div>
+            <div class="controls">
+                <label for="format-select">Export as:</label>
+                <select id="format-select">
+                    <option value="srt">SRT</option>
+                    <option value="vtt">VTT</option>
+                    <option value="txt">TXT</option>
+                </select>
+                <button id="copy-btn" class="ghost">📋 Copy</button>
+                <a id="download-btn" class="primary" download="subtitles.srt">⬇ Download</a>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <div>
+            Built with <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>
+            + <a href="https://ffmpegwasm.netlify.app/" target="_blank" rel="noopener">FFmpeg.wasm</a>
+        </div>
+        <div class="tech-tags">
+            <span>🤖 No API keys</span>
+            <span>🔒 Private by design</span>
+            <span>⚡ 100% browser</span>
+            <span>📦 ~150MB model (cached)</span>
+        </div>
+    </footer>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
