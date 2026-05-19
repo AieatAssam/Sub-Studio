@@ -15,9 +15,16 @@ echo "🧪 TEST 03: UI elements and layout"
 raw() { sed 's/^"//;s/"$//'; }
 
 # ─── Load the app ─────────────────────────────────────────────────────────────
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
-sleep 1
+sleep 2
+# Wait for app to be ready
+for try in $(seq 1 10); do
+  READY=$(agent-browser eval "document.getElementById('upload-zone') !== null && document.getElementById('drop-text') !== null" 2>&1)
+  if [ "$READY" = "true" ]; then break; fi
+  sleep 0.5
+done
+sleep 0.5
 
 # ─── Test: Header elements ────────────────────────────────────────────────────
 echo "   ── Header ──"

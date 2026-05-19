@@ -10,7 +10,7 @@ mkdir -p "$SCREENSHOTS"
 
 echo "🧪 TEST 10: URL input & sample generation"
 
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
 sleep 1
 

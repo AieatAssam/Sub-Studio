@@ -10,9 +10,16 @@ mkdir -p "$SCREENSHOTS"
 
 echo "🧪 TEST 07: State machine transitions"
 
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
-sleep 1
+sleep 2
+# Wait for app to be ready
+for try in $(seq 1 10); do
+  READY=$(agent-browser eval "document.getElementById('upload-zone') !== null && document.getElementById('drop-text') !== null" 2>&1)
+  if [ "$READY" = "true" ]; then break; fi
+  sleep 0.5
+done
+sleep 0.5
 
 # ─── Test all state transition effects ────────────────────────────────────────
 echo "   ── Transition: idle → loading-ffmpeg ──"
@@ -119,7 +126,7 @@ agent-browser eval "
 
 # Now click clear button
 agent-browser eval 'document.getElementById("clear-btn").click()' 2>&1
-sleep 0.5
+sleep 1
 
 # Verify all sections returned to idle state
 UPLOAD_VISIBLE=$(agent-browser eval '!document.getElementById("upload-zone").classList.contains("hidden")' 2>&1)
@@ -154,7 +161,7 @@ fi
 # ─── Test: Error cleared on new file upload ──────────────────────────────────
 echo "   ── Error cleared by reset ──"
 agent-browser eval 'document.getElementById("clear-btn").click()' 2>&1
-sleep 0.3
+sleep 1
 ERR_HIDDEN=$(agent-browser eval 'document.getElementById("error-display").classList.contains("hidden")' 2>&1)
 if [ "$ERR_HIDDEN" = "true" ]; then
     echo "   ✅ PASS: Error cleared by reset"

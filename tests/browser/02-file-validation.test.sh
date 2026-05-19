@@ -14,9 +14,16 @@ mkdir -p "$SCREENSHOTS"
 echo "🧪 TEST 02: File validation & error handling"
 
 # ─── Load the app ─────────────────────────────────────────────────────────────
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
-sleep 1
+sleep 2
+# Wait for app to be ready
+for try in $(seq 1 10); do
+  READY=$(agent-browser eval "document.getElementById('upload-zone') !== null && document.getElementById('drop-text') !== null" 2>&1)
+  if [ "$READY" = "true" ]; then break; fi
+  sleep 0.5
+done
+sleep 0.5
 agent-browser screenshot "$SCREENSHOTS/00-baseline.png"
 
 # ─── Test: Error UI renders correctly (drive via JS, test the DOM result) ──
@@ -34,7 +41,7 @@ agent-browser eval "
     errMsg.textContent = 'Please select a video file (MP4, WebM, MOV, AVI, MKV, etc.)';
 " 2>&1
 
-sleep 0.5
+sleep 1
 agent-browser screenshot "$SCREENSHOTS/01-simulated-error.png"
 
 # Verify error display is visible
@@ -66,7 +73,7 @@ echo "   ── Testing error dismiss ──"
 agent-browser eval "
     document.getElementById('error-display').classList.add('hidden');
 " 2>&1
-sleep 0.5
+sleep 1
 
 ERROR_HIDDEN=$(agent-browser eval "
     document.getElementById('error-display').classList.contains('hidden')
@@ -130,7 +137,7 @@ echo "   ── Testing valid video drop ──"
 agent-browser eval "
     document.getElementById('clear-btn').click();
 " 2>&1
-sleep 0.5
+sleep 1
 
 TEXT_UPDATED=$(agent-browser eval "
     const zone = document.getElementById('upload-zone');

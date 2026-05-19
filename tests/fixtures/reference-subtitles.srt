@@ -1,0 +1,303 @@
+1
+00:00:00,279 --> 00:00:03,058
+Welcome to the demo video
+production tutorial!
+
+2
+00:00:03,292 --> 00:00:07,250
+Here I am going to describe
+the process, tools, and resources.
+
+3
+00:00:08,757 --> 00:00:12,780
+So, where to start in the process
+of making a video tutorial?
+
+4
+00:00:13,048 --> 00:00:14,336
+If you are a beginner,
+
+5
+00:00:14,361 --> 00:00:17,974
+it could be a frustrating moment—
+from equipment to software—
+
+6
+00:00:18,023 --> 00:00:21,673
+but in this video, we will go
+through the process step by step.
+
+7
+00:00:21,880 --> 00:00:24,027
+The ADDIE model is the process
+
+8
+00:00:24,067 --> 00:00:27,398
+traditionally used by instructional
+designers and training developers.
+
+9
+00:00:27,514 --> 00:00:29,738
+The five phases of the model—
+
+10
+00:00:29,776 --> 00:00:33,778
+Analysis, Design, Development,
+Implementation, and Evaluation—
+
+11
+00:00:33,827 --> 00:00:36,157
+represent a dynamic, flexible guideline
+
+12
+00:00:36,205 --> 00:00:39,047
+for building effective training
+and performance support tool
+
+13
+00:00:39,096 --> 00:00:40,415
+such as video.
+
+14
+00:00:41,469 --> 00:00:43,306
+At the analysis stage:
+
+15
+00:00:43,352 --> 00:00:46,965
+Research the topic
+that you will make a video tutorial for:
+
+16
+00:00:47,303 --> 00:00:50,237
+Who is the audience
+and what are their characteristics?
+
+17
+00:00:50,286 --> 00:00:52,746
+For example, this video is for beginners.
+
+18
+00:00:53,063 --> 00:00:55,624
+Identify the outcome for the audience.
+
+19
+00:00:55,681 --> 00:01:00,164
+For example, as the result, users
+will learn how to make a video tutorial.
+
+20
+00:01:00,707 --> 00:01:03,268
+What is the timeline
+for project completion?
+
+21
+00:01:03,513 --> 00:01:06,200
+Plan to send your video
+for the initial feedback
+
+22
+00:01:06,233 --> 00:01:10,106
+and to have enough time left
+to resolve the issues before posting.
+
+23
+00:01:10,316 --> 00:01:12,266
+At the design phase, write a script.
+
+24
+00:01:12,315 --> 00:01:15,681
+You can use this template, I will
+share it in the link below the video.
+
+25
+00:01:15,768 --> 00:01:18,508
+Design the user interface
+and user experience:
+
+26
+00:01:18,558 --> 00:01:20,497
+colors, music/no music.
+
+27
+00:01:20,681 --> 00:01:23,523
+For intro/outro
+use a color-blind-friendly palette.
+
+28
+00:01:23,553 --> 00:01:25,700
+For example, blue/orange,
+blue/red, blue/brown
+
+29
+00:01:25,700 --> 00:01:27,699
+[are common
+color-blind-friendly palettes].
+
+30
+00:01:27,809 --> 00:01:29,220
+Apply a visual design,
+
+31
+00:01:29,269 --> 00:01:33,515
+choose a professional-looking background
+or a template for your video.
+
+32
+00:01:35,459 --> 00:01:38,244
+At the development stage,
+you will need the equipment:
+
+33
+00:01:38,294 --> 00:01:44,780
+a laptop, a microphone, a quiet room,
+professional background, and the look.
+
+34
+00:01:45,262 --> 00:01:46,244
+Recording:
+
+35
+00:01:46,294 --> 00:01:48,199
+Record sections of the video.
+
+36
+00:01:48,249 --> 00:01:50,448
+There are plenty
+of screen recording tools.
+
+37
+00:01:50,481 --> 00:01:53,251
+In the link below the video,
+you will find the document
+
+38
+00:01:53,271 --> 00:01:56,638
+with the list of free tools
+and tutorials how to use them.
+
+39
+00:01:56,816 --> 00:02:00,755
+It’s important that free tools
+don’t have watermarks,
+
+40
+00:02:00,796 --> 00:02:03,284
+recording limits, and have good quality.
+
+41
+00:02:03,461 --> 00:02:06,198
+There are options like using
+Zoom to screen record
+
+42
+00:02:06,247 --> 00:02:08,451
+and Windows preinstalled software.
+
+43
+00:02:08,727 --> 00:02:11,200
+Editing: At the implementation stage,
+
+44
+00:02:11,233 --> 00:02:13,721
+trim, crop, and arrange
+the clips/sections.
+
+45
+00:02:13,894 --> 00:02:17,232
+Sound: Re-record some sections
+if there are sound issues
+
+46
+00:02:17,281 --> 00:02:20,546
+like sound gets too quiet or sounded
+like the microphone is too far.
+
+47
+00:02:20,596 --> 00:02:23,227
+Sound is important
+for the visually impaired audience.
+
+48
+00:02:23,268 --> 00:02:25,467
+There are free editing tools,
+
+49
+00:02:25,500 --> 00:02:28,788
+the full list is in the link
+to the document below the video.
+
+50
+00:02:29,476 --> 00:02:33,708
+Subtitles: For short videos,
+use YouTube automatic captions tool.
+
+51
+00:02:33,719 --> 00:02:36,262
+[Consider editing the result!]
+You will find the links
+
+52
+00:02:36,292 --> 00:02:39,199
+to other subtitles generating tools
+and guides how to use them
+
+53
+00:02:39,211 --> 00:02:41,522
+in the same document
+in the link below the video.
+
+54
+00:02:41,522 --> 00:02:43,493
+You can also create your own captions.
+
+55
+00:02:43,560 --> 00:02:45,976
+SRT files for captions are preferable
+
+56
+00:02:46,009 --> 00:02:49,718
+because they are used on Facebook,
+YouTube, and other platforms.
+
+57
+00:02:49,759 --> 00:02:52,750
+Make sure that captions are translatable!
+
+58
+00:02:53,270 --> 00:02:54,851
+[Evaluation]
+
+59
+00:02:55,084 --> 00:02:58,292
+Upload your video on platforms.
+Write a description [to the video].
+
+60
+00:02:58,322 --> 00:03:02,246
+Receive the feedback,
+resolve issues accordingly and publish
+
+61
+00:03:04,724 --> 00:03:06,503
+And here is the exercise:
+
+62
+00:03:06,543 --> 00:03:09,782
+Make a video tutorial
+with translatable subtitles,
+
+63
+00:03:09,799 --> 00:03:11,739
+not more than 5 min long,
+
+64
+00:03:11,781 --> 00:03:14,495
+share with 3-5 people for their feedback,
+
+65
+00:03:14,535 --> 00:03:15,890
+publish on platforms!
+
+66
+00:03:16,576 --> 00:03:19,701
+Thank you so much for joining!

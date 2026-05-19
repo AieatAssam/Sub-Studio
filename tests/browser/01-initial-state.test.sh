@@ -13,7 +13,7 @@ mkdir -p "$SCREENSHOTS"
 echo "🧪 TEST 01: Initial state (idle)"
 
 # ─── Navigate to the app ──────────────────────────────────────────────────────
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
 sleep 1
 

@@ -16,7 +16,7 @@ echo "🧪 TEST 04: UI interaction flow"
 raw() { sed 's/^"//;s/"$//'; }
 
 # ─── Load the app ─────────────────────────────────────────────────────────────
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
 sleep 1
 

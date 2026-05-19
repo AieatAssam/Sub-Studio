@@ -10,14 +10,21 @@ mkdir -p "$SCREENSHOTS"
 
 echo "🧪 TEST 09: Error modes & edge cases"
 
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
-sleep 1
+sleep 2
+# Wait for app to be ready
+for try in $(seq 1 10); do
+  READY=$(agent-browser eval "document.getElementById('upload-zone') !== null && document.getElementById('drop-text') !== null" 2>&1)
+  if [ "$READY" = "true" ]; then break; fi
+  sleep 0.5
+done
+sleep 0.5
 
 # ─── Test: Reset from idle state (no-op) ─────────────────────────────────────
 echo "   ── Reset from idle (no-op safety) ──"
 agent-browser eval 'document.getElementById("clear-btn").click()' 2>&1
-sleep 0.3
+sleep 1
 
 IDLE_STILL=$(agent-browser eval '
     document.getElementById("upload-zone").classList.contains("hidden") === false &&
@@ -77,7 +84,7 @@ echo "   Video src before reset: ${SRC_BEFORE:0:50}..."
 
 # Reset
 agent-browser eval 'document.getElementById("clear-btn").click()' 2>&1
-sleep 0.3
+sleep 1
 
 SRC_AFTER=$(agent-browser eval 'document.getElementById("video-preview").src' 2>&1)
 echo "   Video src after reset: '$SRC_AFTER'"
@@ -100,7 +107,7 @@ agent-browser eval '
 
 # Reset
 agent-browser eval 'document.getElementById("clear-btn").click()' 2>&1
-sleep 0.3
+sleep 1
 
 DROP_TEXT=$(agent-browser get text '#drop-text' 2>&1)
 echo "   Drop text after reset: $DROP_TEXT"

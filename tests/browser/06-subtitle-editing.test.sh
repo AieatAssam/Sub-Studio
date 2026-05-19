@@ -10,9 +10,16 @@ mkdir -p "$SCREENSHOTS"
 
 echo "🧪 TEST 06: Subtitle editing and format switching"
 
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
-sleep 1
+sleep 2
+# Wait for app to be ready
+for try in $(seq 1 10); do
+  READY=$(agent-browser eval "document.getElementById('upload-zone') !== null && document.getElementById('drop-text') !== null" 2>&1)
+  if [ "$READY" = "true" ]; then break; fi
+  sleep 0.5
+done
+sleep 0.5
 
 # ─── Inject mock results (same as test 05) ───────────────────────────────────
 echo "   ── Setting up mock results ──"
@@ -57,7 +64,7 @@ agent-browser eval "
     })();
 " 2>&1
 
-sleep 0.5
+sleep 1
 
 # ─── Test: Edit a subtitle ───────────────────────────────────────────────────
 echo "   ── Editing subtitle text ──"

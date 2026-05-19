@@ -10,7 +10,7 @@ mkdir -p "$SCREENSHOTS"
 
 echo "🧪 TEST 08: Responsive layout & CSS"
 
-agent-browser open "$BASE_URL/substudio/index.html"
+agent-browser open "$BASE_URL/index.html"
 agent-browser wait --load networkidle
 sleep 1
 
