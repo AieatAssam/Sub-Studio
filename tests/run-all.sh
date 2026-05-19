@@ -34,10 +34,13 @@ echo ""
 # ─── Parse args ───────────────────────────────────────────────────────────────
 KEEP_SERVER=false
 RUN_FILTER=""
+BASE_PATH="auto"
 for arg in "$@"; do
     case "$arg" in
         --server) KEEP_SERVER=true ;;
         --fix) echo "Auto-fix mode TBD"; exit 0 ;;
+        --base-path) BASE_PATH="auto" ;;
+        --base-path=*) BASE_PATH="${arg#--base-path=}" ;;
         [0-9]*) RUN_FILTER="$arg" ;;
     esac
 done
@@ -88,7 +91,16 @@ if [ "$KEEP_SERVER" = false ]; then
 
     # Wait for server to be ready
     for i in $(seq 1 20); do
-        if curl -s http://127.0.0.1:8000/substudio/index.html >/dev/null 2>&1; then
+        # Auto-detect base path: try /substudio/index.html then /index.html
+        if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/substudio/index.html 2>/dev/null | grep -q 200; then
+            BASE_PATH="/substudio"
+        elif curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/index.html 2>/dev/null | grep -q 200; then
+            BASE_PATH=""
+        else
+            echo -e "${RED}❌ Cannot find index.html at any path on port 8000${NC}"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+        fi
             echo -e "${GREEN}   ✅ Server is ready${NC}"
             break
         fi
@@ -100,7 +112,14 @@ if [ "$KEEP_SERVER" = false ]; then
         sleep 0.5
     done
 else
-    echo -e "${YELLOW}📡 Using existing server at http://127.0.0.1:8000${NC}"
+    if [ "$BASE_PATH" = "auto" ]; then
+        if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/substudio/index.html 2>/dev/null | grep -q 200; then
+            BASE_PATH="/substudio"
+        else
+            BASE_PATH=""
+        fi
+    fi
+    echo -e "${YELLOW}📡 Using existing server at http://127.0.0.1:8000${BASE_PATH}${NC}"
 fi
 
 echo ""
@@ -147,7 +166,8 @@ if [ ${#BROWSER_TESTS[@]} -gt 0 ]; then
         echo ""
 
         set +e
-        bash "$TEST" "http://127.0.0.1:8000"
+        TEST_BASE_URL="http://127.0.0.1:8000${BASE_PATH}"
+        bash "$TEST" "$TEST_BASE_URL"
         EXIT_CODE=$?
         set -e
 

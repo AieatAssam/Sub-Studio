@@ -35,9 +35,8 @@ jobs:
           echo "Server PID: $SERVER_PID"
           sleep 2
 
-          cd tests
-          chmod +x run-all.sh browser/*.test.sh
-          bash run-all.sh --server
+          chmod +x tests/run-all.sh tests/browser/*.test.sh
+          bash tests/run-all.sh --server
 
           EXIT_CODE=$?
           kill $SERVER_PID 2>/dev/null || true
