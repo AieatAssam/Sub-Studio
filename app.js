@@ -21,7 +21,7 @@ import {
 let pipeline;
 async function loadTransformers() {
     if (pipeline) return;
-    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
+    const mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
     pipeline = mod.pipeline;
 }
 
