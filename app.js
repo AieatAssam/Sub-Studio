@@ -22,8 +22,8 @@ let FFmpeg, fetchFile, toBlobURL;
 
 async function loadFFmpeg() {
     if (FFmpeg) return;
-    const mod = await import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10');
-    const util = await import('https://esm.sh/@ffmpeg/util@0.12.1');
+    const mod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm');
+    const util = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm');
     FFmpeg = mod.FFmpeg;
     fetchFile = util.fetchFile;
     toBlobURL = util.toBlobURL;
@@ -32,7 +32,7 @@ async function loadFFmpeg() {
 let pipeline;
 async function loadTransformers() {
     if (pipeline) return;
-    const mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
     pipeline = mod.pipeline;
 }
 
