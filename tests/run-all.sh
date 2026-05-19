@@ -94,18 +94,15 @@ if [ "$KEEP_SERVER" = false ]; then
         # Auto-detect base path: try /substudio/index.html then /index.html
         if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/substudio/index.html 2>/dev/null | grep -q 200; then
             BASE_PATH="/substudio"
+            echo -e "${GREEN}   ✅ Server is ready (substudio/ path)${NC}"
+            break
         elif curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/index.html 2>/dev/null | grep -q 200; then
             BASE_PATH=""
-        else
-            echo -e "${RED}❌ Cannot find index.html at any path on port 8000${NC}"
-            kill $SERVER_PID 2>/dev/null || true
-            exit 1
-        fi
-            echo -e "${GREEN}   ✅ Server is ready${NC}"
+            echo -e "${GREEN}   ✅ Server is ready (root path)${NC}"
             break
         fi
         if [ "$i" -eq 20 ]; then
-            echo -e "${RED}❌ Server failed to start${NC}"
+            echo -e "${RED}❌ Server failed to start (cannot reach index.html)${NC}"
             kill $SERVER_PID 2>/dev/null || true
             exit 1
         fi
