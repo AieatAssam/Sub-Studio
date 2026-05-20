@@ -126,24 +126,51 @@ function hideError() {
 // Extracts 16kHz mono PCM audio from video files using the browser's native
 // decoders. No FFmpeg.wasm or SharedArrayBuffer needed.
 
+// AudioContext helper — creates a context in the correct state for mobile
+async function createActiveAudioContext() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // On mobile Chrome, AudioContext starts suspended and needs user gesture.
+    // Since the user triggered this (click/drop), resume() should work.
+    if (ctx.state === 'suspended') {
+        try {
+            await ctx.resume();
+        } catch (resumeErr) {
+            console.warn('AudioContext resume failed:', resumeErr);
+        }
+    }
+    return ctx;
+}
+
 async function extractAudio(videoFile, onProgress) {
     onProgress(10, 'Decoding audio via browser...');
 
-    // Load the video file into an ArrayBuffer
     const arrayBuffer = await videoFile.arrayBuffer();
-
-    // Create an AudioContext and try to decode the audio
-    // Note: decodeAudioData works with most video containers (MP4, WebM, MOV)
-    // because browsers internally extract the audio track.
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioCtx = await createActiveAudioContext();
 
     let audioBuffer;
+
+    // Strategy 1: decodeAudioData on the full file (works for most formats
+    // on desktop, limited on mobile where video container decode may fail)
     try {
         audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        // Verify we got actual audio (non-zero length)
+        if (!audioBuffer || audioBuffer.length === 0) {
+            throw new Error('Decoded audio buffer is empty');
+        }
     } catch (decodeErr) {
-        // If direct decode fails, try via a media element (play + capture)
-        onProgress(30, 'Fallback: capturing audio from video playback...');
-        audioBuffer = await captureAudioFromVideo(videoFile, onProgress);
+        console.warn('decodeAudioData failed, trying MediaRecorder fallback:', decodeErr.message);
+        onProgress(30, 'Playing video to capture audio...');
+        // Strategy 2: play video through a <video> element and capture via MediaRecorder
+        try {
+            audioBuffer = await captureAudioFromVideo(videoFile, onProgress);
+        } catch (captureErr) {
+            console.error('MediaRecorder fallback also failed:', captureErr);
+            // Strategy 3: last resort — try decodeAudioData on just the audio
+            // portion (some mobile browsers handle audio-only files but not video)
+            throw new Error('Could not extract audio from this video on this browser. '
+                + 'Try the sample button to test with generated audio, '
+                + 'or use a different browser (Chrome desktop recommended).');
+        }
     }
 
     onProgress(70, 'Resampling to 16kHz...');
@@ -168,7 +195,7 @@ async function extractAudio(videoFile, onProgress) {
         }
     }
 
-    // Resample to 16kHz
+    // Resample to 16kHz using linear interpolation
     const targetRate = 16000;
     const targetLength = Math.floor(duration * targetRate);
     const resampled = new Float32Array(targetLength);
@@ -181,16 +208,10 @@ async function extractAudio(videoFile, onProgress) {
         resampled[i] = monoData[idx1] * (1 - frac) + monoData[idx2] * frac;
     }
 
-    onProgress(90, 'Preparing audio data...');
-
     onProgress(100, 'Audio extracted!');
 
-    // Clean up the AudioContext
     await audioCtx.close();
 
-    // Return raw PCM samples + metadata (skip WAV encoding — Whisper
-    // handles Float32Array directly and WAV blobs may not decode in
-    // all browser environments)
     return {
         samples: resampled,
         sampleRate: targetRate,
@@ -201,17 +222,23 @@ async function extractAudio(videoFile, onProgress) {
 async function captureAudioFromVideo(videoFile, onProgress) {
     return new Promise((resolve, reject) => {
         const video = document.createElement('video');
-        video.muted = false;
+        video.muted = true;   // Mute to avoid speaker feedback
         video.playsInline = true;
+        video.preload = 'auto';
         video.crossOrigin = 'anonymous';
 
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const chunks = [];
         let timeoutId;
+        let cleanup = () => {
+            clearTimeout(timeoutId);
+            video.remove();
+            URL.revokeObjectURL(video.src);
+        };
 
-        video.onloadedmetadata = () => {
+        video.onloadedmetadata = async () => {
             const duration = video.duration;
-            if (!duration || !isFinite(duration)) {
+            if (!duration || !isFinite(duration) || duration <= 0) {
+                cleanup();
                 reject(new Error('Could not determine video duration'));
                 return;
             }
@@ -219,15 +246,29 @@ async function captureAudioFromVideo(videoFile, onProgress) {
             onProgress(40, 'Video loaded, capturing audio...');
 
             try {
+                const audioCtx = await createActiveAudioContext();
+
+                // Some mobile browsers don't support createMediaElementSource
+                if (!audioCtx.createMediaElementSource) {
+                    cleanup();
+                    audioCtx.close();
+                    reject(new Error('createMediaElementSource not available on this browser'));
+                    return;
+                }
+
                 const source = audioCtx.createMediaElementSource(video);
                 const dest = audioCtx.createMediaStreamDestination();
                 source.connect(dest);
 
-                const recorder = new MediaRecorder(dest.stream, {
-                    mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                        ? 'audio/webm;codecs=opus'
-                        : 'audio/webm'
-                });
+                // Pick audio format supported by the browser
+                let mimeType = 'audio/webm';
+                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                    mimeType = 'audio/webm;codecs=opus';
+                } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                    mimeType = 'audio/mp4';
+                }
+
+                const recorder = new MediaRecorder(dest.stream, { mimeType });
 
                 recorder.ondataavailable = (e) => {
                     if (e.data.size > 0) chunks.push(e.data);
@@ -235,29 +276,49 @@ async function captureAudioFromVideo(videoFile, onProgress) {
 
                 recorder.onstop = async () => {
                     clearTimeout(timeoutId);
-                    const recorded = new Blob(chunks, { type: 'audio/webm' });
+                    const recorded = new Blob(chunks, { type: mimeType });
+
+                    if (chunks.length === 0) {
+                        cleanup();
+                        audioCtx.close();
+                        reject(new Error('No audio data captured — video may have no audio track'));
+                        return;
+                    }
+
                     onProgress(60, 'Decoding captured audio...');
                     try {
                         const buf = await recorded.arrayBuffer();
+                        // Ensure context is active before decode
+                        if (audioCtx.state === 'suspended') await audioCtx.resume();
                         const decoded = await audioCtx.decodeAudioData(buf);
-                        video.remove();
+                        cleanup();
+                        audioCtx.close();
                         resolve(decoded);
                     } catch (decodeErr) {
+                        cleanup();
+                        audioCtx.close();
                         reject(new Error('Could not decode captured audio: ' + decodeErr.message));
                     }
                 };
 
-                recorder.start();
-                video.play().catch(reject);
+                recorder.onerror = () => {
+                    cleanup();
+                    reject(new Error('MediaRecorder error during capture'));
+                };
 
-                // Safety timeout (2× video duration + 5s)
+                recorder.start(1000); // Collect data every second
+                video.play().catch((playErr) => {
+                    cleanup();
+                    reject(new Error('Could not play video for capture: ' + playErr.message));
+                });
+
+                // Safety timeout: video duration + 30s buffer
                 timeoutId = setTimeout(() => {
                     if (recorder.state === 'recording') {
                         recorder.stop();
                     }
-                }, (duration * 2 + 5) * 1000);
+                }, (duration + 30) * 1000);
 
-                // Stop when video ends
                 video.onended = () => {
                     if (recorder.state === 'recording') {
                         recorder.stop();
@@ -265,11 +326,19 @@ async function captureAudioFromVideo(videoFile, onProgress) {
                 };
 
             } catch (err) {
-                reject(new Error('MediaRecorder approach failed: ' + err.message));
+                cleanup();
+                reject(new Error('Capture setup failed: ' + err.message));
             }
         };
 
-        video.onerror = () => reject(new Error('Could not load video for audio capture'));
+        video.onerror = (e) => {
+            const mediaError = video.error;
+            const msg = mediaError
+                ? `Code ${mediaError.code}: ${mediaError.message}`
+                : 'Could not load video for audio capture';
+            reject(new Error(msg));
+        };
+
         video.src = URL.createObjectURL(videoFile);
     });
 }
