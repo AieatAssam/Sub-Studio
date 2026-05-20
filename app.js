@@ -345,24 +345,76 @@ async function captureAudioFromVideo(videoFile, onProgress) {
 
 // ─── Pipeline: AI Transcription ──────────────────────────────────────────────
 
+// Timeout a promise after `ms` milliseconds with a custom error
+function withTimeout(promise, ms, timeoutMsg) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMsg)), ms);
+    });
+    return Promise.race([
+        promise.finally(() => clearTimeout(timer)),
+        timeout,
+    ]);
+}
+
 async function transcribeAudio(audioData, onProgress) {
     onProgress(5, 'Loading AI model (Whisper tiny)...');
-    setStatus('loading-model', 5, 'Downloading AI model (~150MB, cached after first use)...');
+    setStatus('loading-model', 5, 'Downloading AI model (~40MB, cached after first use)...');
+
+    // Quick connectivity check — if huggingface.co is unreachable (Brave Shields, etc.),
+    // fail fast instead of hanging indefinitely.
+    try {
+        const probe = await fetch('https://huggingface.co/', {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!probe.ok) throw new Error('Status ' + probe.status);
+    } catch (probeErr) {
+        const isBlocked = probeErr.name === 'AbortError'
+            || probeErr.message?.includes('Failed to fetch')
+            || probeErr.message?.includes('NetworkError');
+        if (isBlocked) {
+            throw new Error('Cannot reach the AI model server. '
+                + 'If you use Brave Browser, try disabling Shields for this site '
+                + '(click the Brave lion icon in the address bar → Shields: Down).'
+                + ' Otherwise check your network connection.');
+        }
+        // If we got a response (even a non-200), the network is working — continue
+    }
+
     await loadTransformers();
 
     onProgress(30, 'Initializing transcription pipeline...');
-    const pipe = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-        progress_callback: (progress) => {
-            if (progress.status === 'progress' && progress.file) {
-                const percent = 30 + Math.round(progress.progress * 40);
-                setStatus('loading-model', percent, `Loading ${progress.file}...`);
-            }
-        },
-    });
+
+    let pipe;
+    try {
+        // Wrap model loading in a 90-second timeout (model is ~40MB over network)
+        pipe = await withTimeout(
+            pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+                progress_callback: (progress) => {
+                    if (progress.status === 'progress' && progress.file) {
+                        const percent = 30 + Math.round(progress.progress * 40);
+                        setStatus('loading-model', percent, `Loading ${progress.file}...`);
+                    }
+                },
+            }),
+            90000,
+            'AI model download timed out. '
+            + 'On mobile, ensure you have a stable connection. '
+            + 'If using Brave, disable Shields for this site (lion icon → Shields: Down).'
+        );
+    } catch (loadErr) {
+        // Distinguish network failure from model format errors
+        if (loadErr.message?.includes('Unsupported model')) {
+            throw new Error('This browser does not support the Whisper AI model format. '
+                + 'Try Google Chrome on a desktop computer.');
+        }
+        throw loadErr;
+    }
 
     setStatus('transcribing', 30, 'Transcribing audio with AI...');
 
-    // Create a mock progress callback since Whisper doesn't report incremental progress easily
+    // Show incremental progress during transcription
     let fakeProgress = 30;
     const progressInterval = setInterval(() => {
         fakeProgress = Math.min(90, fakeProgress + 2);
@@ -379,11 +431,9 @@ async function transcribeAudio(audioData, onProgress) {
         clearInterval(progressInterval);
         setStatus('transcribing', 100, 'Transcription complete!');
 
-        // Parse the result into subtitle segments
         let subtitles = parseWhisperChunks(result.chunks);
 
         if (subtitles.length === 0 && result.text) {
-            // Fallback: if no timestamps, create one subtitle for the entire audio
             subtitles = [{
                 index: 1,
                 start: 0,
@@ -392,7 +442,6 @@ async function transcribeAudio(audioData, onProgress) {
             }];
         }
 
-        // Also create the full text version
         return {
             fullText: result.text,
             chunks: result.chunks,
