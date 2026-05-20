@@ -361,27 +361,6 @@ async function transcribeAudio(audioData, onProgress) {
     onProgress(5, 'Loading AI model (Whisper tiny)...');
     setStatus('loading-model', 5, 'Downloading AI model (~40MB, cached after first use)...');
 
-    // Quick connectivity check — if huggingface.co is unreachable (Brave Shields, etc.),
-    // fail fast instead of hanging indefinitely.
-    try {
-        const probe = await fetch('https://huggingface.co/', {
-            method: 'HEAD',
-            signal: AbortSignal.timeout(5000),
-        });
-        if (!probe.ok) throw new Error('Status ' + probe.status);
-    } catch (probeErr) {
-        const isBlocked = probeErr.name === 'AbortError'
-            || probeErr.message?.includes('Failed to fetch')
-            || probeErr.message?.includes('NetworkError');
-        if (isBlocked) {
-            throw new Error('Cannot reach the AI model server. '
-                + 'If you use Brave Browser, try disabling Shields for this site '
-                + '(click the Brave lion icon in the address bar → Shields: Down).'
-                + ' Otherwise check your network connection.');
-        }
-        // If we got a response (even a non-200), the network is working — continue
-    }
-
     await loadTransformers();
 
     onProgress(30, 'Initializing transcription pipeline...');
@@ -401,7 +380,7 @@ async function transcribeAudio(audioData, onProgress) {
             90000,
             'AI model download timed out. '
             + 'On mobile, ensure you have a stable connection. '
-            + 'If using Brave, disable Shields for this site (lion icon → Shields: Down).'
+            + 'Check your network and try again.'
         );
     } catch (loadErr) {
         // Distinguish network failure from model format errors
