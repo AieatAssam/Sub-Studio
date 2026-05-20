@@ -32,7 +32,10 @@ async function loadTransformers() {
     if (/android/i.test(navigator.userAgent)) {
         mod.env.useBrowserCache = false;
         if (mod.env.backends?.onnx) {
-            mod.env.backends.onnx.wasm = { numThreads: 1 };
+            mod.env.backends.onnx.wasm = {
+                numThreads: 1,
+                wasmPaths: 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/',
+            };
         }
     }
 }
@@ -388,7 +391,10 @@ async function transcribeAudio(audioData, onProgress) {
                 setStatus('loading-model', 30, 'Retrying with CPU backend...');
                 if (transformersMod.env.backends?.onnx) {
                     transformersMod.env.useBrowserCache = false;
-                    transformersMod.env.backends.onnx.wasm = { numThreads: 1 };
+                    transformersMod.env.backends.onnx.wasm = {
+                        numThreads: 1,
+                        wasmPaths: 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/',
+                    };
                 }
             }
             pipe = await withTimeout(
@@ -409,14 +415,14 @@ async function transcribeAudio(audioData, onProgress) {
             );
             break; // success
         } catch (loadErr) {
-            if (loadErr.message?.includes('Unsupported model')) {
-                throw new Error('This browser does not support the Whisper AI model format. '
-                    + 'Try Google Chrome on a desktop computer.');
-            }
+            console.error('Pipeline init error (attempt', attempt, '):', loadErr);
             if (attempt === 0) {
                 continue; // retry with WASM
             }
-            throw loadErr;
+            // Both backends failed — show the real error, not a guess
+            throw new Error('Failed to load the AI model. '
+                + 'Ensure you are using a supported browser (Chrome, Edge, or Firefox). '
+                + 'On Android, try Chrome. Error: ' + loadErr.message);
         }
     }
 
