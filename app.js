@@ -19,16 +19,21 @@ import {
 } from './subtitle-utils.js';
 
 let pipeline;
+let transformersMod;  // kept for runtime backend fallback
+
 async function loadTransformers() {
     if (pipeline) return;
     const mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
     pipeline = mod.pipeline;
+    transformersMod = mod;
 
-    // Force WASM backend + disable IndexedDB cache for Android reliability.
-    // WebGL/WebGPU can hang during ONNX session creation on mobile browsers.
-    mod.env.useBrowserCache = false;
-    if (mod.env.backends?.onnx) {
-        mod.env.backends.onnx.wasm = { numThreads: 1 };
+    // Android: default WebGL backend can hang during ONNX session creation
+    // after model download completes. Preconfigure WASM to skip the pain.
+    if (/android/i.test(navigator.userAgent)) {
+        mod.env.useBrowserCache = false;
+        if (mod.env.backends?.onnx) {
+            mod.env.backends.onnx.wasm = { numThreads: 1 };
+        }
     }
 }
 
@@ -372,30 +377,47 @@ async function transcribeAudio(audioData, onProgress) {
 
     onProgress(30, 'Initializing transcription pipeline...');
 
+    // Try default WebGL/GNU backend first. On desktop this is fast and reliable.
+    // If it fails (timeout, WebGL context loss, etc.), retry with WASM fallback.
+    // Android is preconfigured for WASM in loadTransformers() so it skips WebGL.
     let pipe;
-    try {
-        // Wrap model loading in a 90-second timeout (model is ~40MB over network)
-        pipe = await withTimeout(
-            pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-                progress_callback: (progress) => {
-                    if (progress.status === 'progress' && progress.file) {
-                        const percent = 30 + Math.round(progress.progress * 40);
-                        setStatus('loading-model', percent, `Loading ${progress.file}...`);
-                    }
-                },
-            }),
-            90000,
-            'AI model download timed out. '
-            + 'On mobile, ensure you have a stable connection. '
-            + 'Check your network and try again.'
-        );
-    } catch (loadErr) {
-        // Distinguish network failure from model format errors
-        if (loadErr.message?.includes('Unsupported model')) {
-            throw new Error('This browser does not support the Whisper AI model format. '
-                + 'Try Google Chrome on a desktop computer.');
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            if (attempt === 1) {
+                // Fallback to WASM backend
+                setStatus('loading-model', 30, 'Retrying with CPU backend...');
+                if (transformersMod.env.backends?.onnx) {
+                    transformersMod.env.useBrowserCache = false;
+                    transformersMod.env.backends.onnx.wasm = { numThreads: 1 };
+                }
+            }
+            pipe = await withTimeout(
+                pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+                    progress_callback: (progress) => {
+                        if (progress.status === 'progress' && progress.file) {
+                            const percent = 30 + Math.round(progress.progress * 40);
+                            setStatus('loading-model', percent, `Loading ${progress.file}...`);
+                        }
+                    },
+                }),
+                attempt === 0 ? 60000 : 120000,
+                attempt === 0
+                    ? 'Loading the AI model timed out. Retrying with a compatible backend...'
+                    : 'AI model download timed out. '
+                    + 'On mobile, ensure you have a stable connection. '
+                    + 'Check your network and try again.'
+            );
+            break; // success
+        } catch (loadErr) {
+            if (loadErr.message?.includes('Unsupported model')) {
+                throw new Error('This browser does not support the Whisper AI model format. '
+                    + 'Try Google Chrome on a desktop computer.');
+            }
+            if (attempt === 0) {
+                continue; // retry with WASM
+            }
+            throw loadErr;
         }
-        throw loadErr;
     }
 
     setStatus('transcribing', 30, 'Transcribing audio with AI...');
