@@ -19,19 +19,18 @@ import {
 } from './subtitle-utils.js';
 
 let pipeline;
-let transformersMod;  // kept for runtime backend fallback
 
 async function loadTransformers() {
     if (pipeline) return;
     const mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
     pipeline = mod.pipeline;
-    transformersMod = mod;
 
-    // Android: default WebGL backend can hang during ONNX session creation
-    // after model download completes. Preconfigure WASM to skip the pain.
+    // Android: default WebGL can hang during ONNX session creation.
+    // Preconfigure WASM + explicit CDN paths for ONNX Runtime binaries.
     if (/android/i.test(navigator.userAgent)) {
         mod.env.useBrowserCache = false;
-        if (mod.env.backends?.onnx) {
+        if (mod.env.backends) {
+            mod.env.backends.onnx = mod.env.backends.onnx || {};
             mod.env.backends.onnx.wasm = {
                 numThreads: 1,
                 wasmPaths: 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/',
@@ -380,50 +379,38 @@ async function transcribeAudio(audioData, onProgress) {
 
     onProgress(30, 'Initializing transcription pipeline...');
 
-    // Try default WebGL/GNU backend first. On desktop this is fast and reliable.
-    // If it fails (timeout, WebGL context loss, etc.), retry with WASM fallback.
-    // Android is preconfigured for WASM in loadTransformers() so it skips WebGL.
     let pipe;
-    for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-            if (attempt === 1) {
-                // Fallback to WASM backend
-                setStatus('loading-model', 30, 'Retrying with CPU backend...');
-                if (transformersMod.env.backends?.onnx) {
-                    transformersMod.env.useBrowserCache = false;
-                    transformersMod.env.backends.onnx.wasm = {
-                        numThreads: 1,
-                        wasmPaths: 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/',
-                    };
-                }
-            }
-            pipe = await withTimeout(
-                pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-                    progress_callback: (progress) => {
-                        if (progress.status === 'progress' && progress.file) {
-                            const percent = 30 + Math.round(progress.progress * 40);
-                            setStatus('loading-model', percent, `Loading ${progress.file}...`);
+    try {
+        // Show which model file is being loaded for visibility
+        let lastFile = '';
+        let downloadStart = Date.now();
+        pipe = await withTimeout(
+            pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+                progress_callback: (progress) => {
+                    if (progress.status === 'progress' && progress.file) {
+                        if (progress.file !== lastFile) {
+                            lastFile = progress.file;
+                            downloadStart = Date.now();
                         }
-                    },
-                }),
-                attempt === 0 ? 60000 : 120000,
-                attempt === 0
-                    ? 'Loading the AI model timed out. Retrying with a compatible backend...'
-                    : 'AI model download timed out. '
-                    + 'On mobile, ensure you have a stable connection. '
-                    + 'Check your network and try again.'
-            );
-            break; // success
-        } catch (loadErr) {
-            console.error('Pipeline init error (attempt', attempt, '):', loadErr);
-            if (attempt === 0) {
-                continue; // retry with WASM
-            }
-            // Both backends failed — show the real error, not a guess
-            throw new Error('Failed to load the AI model. '
-                + 'Ensure you are using a supported browser (Chrome, Edge, or Firefox). '
-                + 'On Android, try Chrome. Error: ' + loadErr.message);
-        }
+                        const percent = 30 + Math.round(progress.progress * 40);
+                        const elapsed = Math.round((Date.now() - downloadStart) / 1000);
+                        setStatus('loading-model', percent,
+                            `Loading ${progress.file}... (${elapsed}s)`);
+                    }
+                    console.log('[Transformers]', progress.status, progress.file || '');
+                },
+            }),
+            120000,
+            'Loading the AI model timed out. '
+            + 'This device may not have enough memory for the Whisper model. '
+            + 'Try a desktop browser instead.'
+        );
+    } catch (loadErr) {
+        console.error('Pipeline init error:', loadErr);
+        throw new Error('Failed to load the AI model. '
+            + (loadErr.message?.includes('timed out')
+                ? 'This device may not have enough memory. Try a desktop browser.'
+                : loadErr.message));
     }
 
     setStatus('transcribing', 30, 'Transcribing audio with AI...');
