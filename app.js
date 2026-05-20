@@ -23,6 +23,13 @@ async function loadTransformers() {
     if (pipeline) return;
     const mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
     pipeline = mod.pipeline;
+
+    // Force WASM backend + disable IndexedDB cache for Android reliability.
+    // WebGL/WebGPU can hang during ONNX session creation on mobile browsers.
+    mod.env.useBrowserCache = false;
+    if (mod.env.backends?.onnx) {
+        mod.env.backends.onnx.wasm = { numThreads: 1 };
+    }
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
