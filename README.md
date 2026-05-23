@@ -2,7 +2,7 @@
 
 **AI subtitle generation. 100% in your browser. Zero network after load.**
 
-Drop a video (or paste a URL, or click "Try sample") → FFmpeg.wasm extracts the audio → Transformers.js runs Whisper locally → timestamped subtitles appear → edit inline → export as SRT, VTT, or TXT. The entire pipeline stays on your machine. No uploads, no servers, no accounts.
+Drop a video (or paste a URL, or click "Try sample") → the browser's native decoders extract the audio → Transformers.js runs Whisper locally → timestamped subtitles appear → edit inline → export as SRT, VTT, or TXT. The entire pipeline stays on your machine. No uploads, no servers, no accounts.
 
 ---
 
@@ -14,7 +14,7 @@ git clone https://github.com/AieatAssam/substudio.git
 # That's it. No build step, no npm install, no backend.
 ```
 
-Or open `index.html` directly in a browser (some features need a local HTTP server for SharedArrayBuffer support):
+Or open `index.html` directly in a browser:
 
 ```
 python3 -m http.server 8000
@@ -40,11 +40,17 @@ open http://localhost:8000
                     │  (or URL/sample) │
                     └────────┬─────────┘
                              │
-                    ┌────────▼────────┐
-                    │   FFmpeg.wasm   │  ◄── Audio extraction
-                    │  (WASM in-browser)│     16kHz mono PCM WAV
-                    └────────┬────────┘
+                    ┌────────▼──────────┐
+                    │  Browser Native   │  ◄── Audio extraction
+                    │  Audio Decoders   │     16kHz mono PCM
+                    │ (decodeAudioData) │     via Web Audio API
+                    └────────┬──────────┘
                              │
+                    ┌────────▼──────────┐
+                    │ MediaRecorder     │  ◄── Fallback for mobile
+                    │  (capture path)   │     or container formats
+                    └────────┬──────────┘       that can't be decoded
+                             │                  directly
                     ┌────────▼────────┐
                     │  Transformers.js │  ◄── Whisper tiny.en
                     │ (WebGPU / WASM) │     Word-level timestamps
@@ -64,22 +70,17 @@ open http://localhost:8000
 
 | Layer | Library | What it does |
 |-------|---------|-------------|
-| Video processing | [FFmpeg.wasm](https://github.com/nicedoc/ffmpeg.wasm) v0.12 | Extracts audio from any video container, re-encodes to PCM 16-bit 16kHz mono |
-| AI transcription | [Transformers.js](https://huggingface.co/docs/transformers.js) v2 | Runs Whisper tiny.en via ONNX Runtime Web (WebGPU or WASM fallback) |
+| Audio extraction | Browser Web Audio API (`decodeAudioData`) | Decodes audio natively, resamples to 16kHz mono PCM; falls back to `MediaRecorder` for containers browsers can't decode directly |
+| AI transcription | [Transformers.js](https://huggingface.co/docs/transformers.js) v2+ | Runs Whisper tiny.en via ONNX Runtime Web (WebGPU or WASM fallback) |
 | Subtitle formats | Inline (`subtitle-utils.js`) | SRT, VTT, TXT generation — all pure functions, zero dependencies |
-| COI support | Service Worker | Cross-Origin Isolation enabling `SharedArrayBuffer` for FFmpeg |
+| N/A | None needed | All processing uses browser-native APIs that don't require special HTTP headers |
 | Sample generation | Web Audio API | Synthesizes 6s of speech-like audio with sawtooth oscillator + envelope shaping |
 
 ---
 
 ## Deploy to GitHub Pages
 
-Push this repo and enable Pages. The included workflow handles everything:
-
-```yaml
-# .github/workflows/deploy.yml
-# Push → Pages → done. No build step required.
-```
+Push this repo and enable Pages. The included workflow handles everything — it's a static site with no build step.
 
 Enable Pages at **Settings → Pages → Source: GitHub Actions**.
 
@@ -132,40 +133,40 @@ CI tests run automatically on push via `.github/workflows/test.yml`.
 
 | Model | Size | Speed (10s audio) |
 |-------|------|-------------------|
-| Whisper tiny.en | ~150MB download | ~5-15s with WebGPU, ~20-40s with WASM |
+| Whisper tiny.en | ~40MB download (INT8 quantized) | ~5-15s with WebGPU, ~20-40s with WASM |
 
 - Model is cached in IndexedDB after first download → works offline
-- FFmpeg extraction usually completes in 1-5s depending on video length
+- Audio extraction via native browser decoders usually completes in 1-5s depending on video length
 
 ---
 
 ## Technical Challenges & Workflow
 
-### SharedArrayBuffer and static hosting
+### Audio extraction without a server
 
-FFmpeg.wasm relies on `SharedArrayBuffer` for its multi-threaded audio processing. Modern browsers require two HTTP headers — `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` — before they'll expose the API. GitHub Pages sends neither.
+The original SubStudio used FFmpeg.wasm to extract audio from videos. That approach worked but had a significant cost: FFmpeg.wasm requires `SharedArrayBuffer`, which needs COOP/COEP HTTP headers that GitHub Pages doesn't send. The workaround — a service worker that injects headers on every response — worked but added complexity.
 
-The workaround is a service worker that intercepts every same-origin response and injects these headers before the page sees them. The `coi-serviceworker.js` file is 40 lines. It registers itself on page load, waits for activation, then wraps every `fetch` response with the required headers. This single file is the difference between "this works on a custom server" and "this works on GitHub Pages with zero configuration."
+The current version takes a different approach: the browser's own `AudioContext.decodeAudioData()` is used to decode video files. Modern browsers ship with software decoders for most video formats (MP4/AAC, WebM/Opus, MOV/AAC), so the native decoder pipeline can extract raw PCM audio without any WASM at all.
 
-Without it, users would need to set up a reverse proxy or switch hosting. With it, they deploy four static files and get a desktop-grade media processing pipeline.
+When `decodeAudioData` fails — typically on mobile browsers that refuse to decode video containers through the audio API, or for formats the browser doesn't natively support — a fallback strategy kicks in: the video is loaded into a hidden `<video>` element, routed through `createMediaElementSource` to a `MediaStream`, and captured via `MediaRecorder`. The captured blob is then decoded back to PCM. This is slower (it plays through the video in real-time) but covers every format the browser can display.
 
-### Running FFmpeg in a browser tab
+Between these two strategies, the browser's native multimedia pipeline handles what would otherwise require a 30MB WebAssembly download with multi-threaded WASM support. The trade-off is format coverage: desktop Chrome can decode almost anything, but older Safari and mobile browsers may need the fallback path.
 
-FFmpeg.wasm compiles the full FFmpeg C codebase to WebAssembly. The 0.12.x API requires loading core binaries from a CDN at runtime (~30MB), writing the input file to a virtual filesystem, running the extraction command, and reading the output back. The virtual filesystem is in-memory — there's no disk I/O. Everything happens inside the WASM linear memory.
+### No server-side headers needed
 
-This means a video file you drop onto a web page is copied into a WebAssembly sandbox, processed by the same code that powers Netflix's encoding pipeline, and returned as a blob — all without a single byte ever reaching a network socket.
+The original SubStudio used FFmpeg.wasm, which required `SharedArrayBuffer` and therefore COOP/COEP HTTP headers that GitHub Pages doesn't send. The current version uses the browser's native Web Audio API for audio extraction, which needs none of that. No service workers, no header workarounds, no hosting requirements. Push to any static host and it works.
 
 ### Neural network inference without a server
 
-Transformers.js compiles Hugging Face models to ONNX format and runs them through ONNX Runtime Web. The Whisper tiny.en model is a 151MB neural network with approximately 39 million parameters. Loading it triggers a download from the Hugging Face CDN (cached in IndexedDB forever after), then the browser's WebGPU API — if available — dispatches matrix multiplications to the local GPU.
+Transformers.js compiles Hugging Face models to ONNX format and runs them through ONNX Runtime Web. The Whisper tiny.en model is an INT8-quantized ~40MB neural network with approximately 39 million parameters. Loading it triggers a download from the Hugging Face CDN (cached in IndexedDB forever after), then the browser's WebGPU API — if available — dispatches matrix multiplications to the local GPU.
 
-When WebGPU is unavailable, it falls back to WASM with SIMD, running the same neural network on the CPU at roughly one-third the speed. The quantization is INT8, so the model weights occupy about a third of what the full-precision version would. The audio is chunked into 30-second windows with 5-second overlap, which means a 90-minute lecture is processed as 180 overlapping segments, each one running through the full 39-million-parameter transformer.
+When WebGPU is unavailable, it falls back to WASM with SIMD, running the same neural network on the CPU at roughly one-third the speed. The audio is chunked into 30-second windows with 5-second overlap, which means a 90-minute lecture is processed as 180 overlapping segments, each one running through the full 39-million-parameter transformer.
 
 ### Synthesizing test data from nothing
 
 The "Try sample" button generates a 6-second WAV file using the Web Audio API's `OfflineAudioContext`. It creates a sawtooth oscillator — the richest harmonic content in the Web Audio API's built-in waveform types — and sweeps its frequency between 180Hz and 500Hz while a gain envelope pulses at roughly syllable cadence. The raw `Float32Array` buffer is then packed into a WAV container with a hand-coded 44-byte RIFF header.
 
-The same `encodeWav` function that packs this synthetic audio also packs the output from FFmpeg.wasm's audio extraction. Both paths converge on the same `Blob → File` flow, which means the sample button tests the entire transcription pipeline end-to-end without requiring a video file on disk or a network request.
+The same `encodeWav` function that packs this synthetic audio is also used internally for resampled audio buffers. The sample button tests the entire transcription pipeline end-to-end without requiring a video file on disk or a network request.
 
 ### Time formatting without rounding errors
 
@@ -181,7 +182,7 @@ Export format switching updates three things simultaneously: the timestamp forma
 
 ### Testing a browser-only audio pipeline in CI
 
-The full pipeline (FFmpeg → Whisper → subtitle generation) requires WebGPU, 150MB of model weights, and browser-level WASM support — none of which is available in typical CI runners. The test strategy splits into three layers:
+The full pipeline (native audio extraction → Whisper → subtitle generation) requires WebGPU, ~40MB of model weights, and browser-level WASM support — none of which is available in typical CI runners. The test strategy splits into three layers:
 
 1. **Unit tests** (Node.js, zero browser) test every pure formatting and validation function with 130+ assertions. These run in milliseconds.
 2. **Browser DOM tests** (`agent-browser`) verify that every UI element exists, every state transition renders correctly, and every interaction produces the expected DOM mutation. These run headless Playwright.
@@ -193,12 +194,12 @@ The 10 browser tests capture screenshots at every significant visual state. Thes
 
 ## Browser Support
 
-| Browser | WebGPU | WASM SIMD | COI SW | Status |
-|---------|--------|-----------|--------|--------|
-| Chrome 113+ | ✅ | ✅ | ✅ | Best experience |
-| Edge 113+ | ✅ | ✅ | ✅ | Best experience |
-| Firefox 125+ | ✅ | ✅ | ✅ | Good |
-| Safari 18+ | ✅ | ✅ | ✅ | Limited |
+| Browser | WebGPU | WASM SIMD | Status |
+|---------|--------|-----------|--------|
+| Chrome 113+ | ✅ | ✅ | Best experience |
+| Edge 113+ | ✅ | ✅ | Best experience |
+| Firefox 125+ | ✅ | ✅ | Good |
+| Safari 18+ | ✅ | ✅ | Limited |
 
 Chrome/Edge recommended for WebGPU acceleration (~3× faster transcription).
 
@@ -206,7 +207,7 @@ Chrome/Edge recommended for WebGPU acceleration (~3× faster transcription).
 
 ## Privacy
 
-This application makes zero network requests after the initial page load. The AI model is downloaded once from Hugging Face's CDN (~150MB) and cached in IndexedDB. Your video file, the extracted audio, the transcribed text — none of it ever leaves your device.
+This application makes zero network requests after the initial page load. The AI model is downloaded once from Hugging Face's CDN (~40MB) and cached in IndexedDB. Your video file, the extracted audio, the transcribed text — none of it ever leaves your device.
 
 ---
 

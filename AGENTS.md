@@ -49,17 +49,22 @@ agent-browser snapshot -i
 
 ```
 tests/
-├── unit/           # Pure function tests (JS)
-│   ├── time-format.test.js
-│   ├── subtitle-generators.test.js
-│   └── file-validation.test.js
-├── integration/    # Pipeline orchestration tests
-│   └── pipeline.test.js
-└── browser/        # agent-browser snapshot tests
-    ├── 01-initial-state.test.sh
-    ├── 02-upload-zone.test.sh
-    ├── 03-video-container.test.sh
-    └── 04-results-view.test.sh
+├── unit/           # Pure function tests (.mjs)
+│   ├── time-format.test.mjs
+│   ├── subtitle-generators.test.mjs
+│   └── file-validation.test.mjs
+├── browser/        # agent-browser snapshot tests (.sh)
+│   ├── 01-initial-state.test.sh
+│   ├── 02-file-validation.test.sh
+│   ├── 03-ui-elements.test.sh
+│   ├── 04-interaction-flow.test.sh
+│   ├── 05-results-display.test.sh
+│   ├── 06-subtitle-editing.test.sh
+│   ├── 07-state-transitions.test.sh
+│   ├── 08-responsive-layout.test.sh
+│   ├── 09-error-modes.test.sh
+│   └── 10-url-and-sample.test.sh
+└── fixtures/        # Short test videos & invalid files
 ```
 
 ### Acceptance Criteria

@@ -2,10 +2,10 @@
  * All processing is local. No uploads, no API keys, no backend.
  *
  * Pipeline:
- *   1. User drops/selects video file
- *   2. FFmpeg.wasm extracts 16kHz mono WAV audio
+ *   1. User drops/selects video file (or URL / sample)
+ *   2. Web Audio API extracts 16kHz mono PCM audio
  *   3. Transformers.js Whisper transcribes with timestamps
- *   4. SRT/VTT generated from transcription segments
+ *   4. SRT/VTT/TXT generated from transcription segments
  *   5. User previews, edits, and exports subtitles
  */
 
@@ -56,8 +56,6 @@ const state = {
 
 // ─── DOM References ──────────────────────────────────────────────────────────
 
-const $ = (id) => document.getElementById(id);
-
 const dom = {
     uploadZone: $('upload-zone'),
     fileInput: $('file-input'),
@@ -93,6 +91,86 @@ const dom = {
     urlLoadingText: $('url-loading-text'),
 };
 
+// ─── Runtime Detection ───────────────────────────────────────────────────────
+
+function detectRuntime() {
+    const info = {
+        backend: '?',
+        gpu: false,
+        wasmSimd: false,
+        model: 'whisper-tiny.en',
+        audio: 'native',
+    };
+
+    // Check WebGPU availability
+    if (navigator.gpu) {
+        info.gpu = true;
+    }
+
+    // Check WASM SIMD support
+    if (typeof WebAssembly !== 'undefined' && WebAssembly.validate) {
+        try {
+            // Minimal WASM module with SIMD instruction
+            const simdWasm = new Uint8Array([
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+                0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b,
+                0x03, 0x02, 0x01, 0x00,
+                0x0a, 0x0a, 0x01, 0x08, 0x00, 0x41, 0x00, 0xfd, 0x0f, 0x0b,
+            ]);
+            info.wasmSimd = WebAssembly.validate(simdWasm);
+        } catch {
+            // SIMD detection failed, assume no
+        }
+    }
+
+    // Determine active backend
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (isAndroid) {
+        info.backend = 'WASM (CPU, single-thread)';
+    } else if (info.gpu) {
+        info.backend = 'WebGPU (GPU)';
+    } else if (info.wasmSimd) {
+        info.backend = 'WASM SIMD (CPU)';
+    } else {
+        info.backend = 'WASM (CPU)';
+    }
+
+    return info;
+}
+
+function updateRuntimeBadge(info) {
+    const badge = document.getElementById('runtime-badge');
+    const footer = document.getElementById('runtime-footer');
+    if (!badge && !footer) return;
+
+    const label = info.backend.startsWith('WebGPU')
+        ? '⚡ WebGPU'
+        : info.backend.startsWith('WASM')
+            ? '⚡ WASM'
+            : '⚡ ' + info.backend;
+
+    const title = info.backend
+        + (info.wasmSimd ? ' + SIMD' : '')
+        + ' · ' + info.model
+        + ' · audio: ' + info.audio;
+
+    if (badge) {
+        badge.textContent = label;
+        badge.title = title;
+        // Add visual hint for accelerated backend
+        badge.style.borderColor = info.gpu
+            ? 'rgba(52,211,153,.3)'
+            : 'var(--border)';
+    }
+    if (footer) {
+        footer.textContent = '🧠 ' + info.backend;
+        footer.title = title;
+    }
+}
+
+// Run detection on load
+updateRuntimeBadge(detectRuntime());
+
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
 function setStatus(status, progress = 0, label = '') {
@@ -113,7 +191,6 @@ function renderStatus() {
 
     // Update status icon based on current operation
     const icons = {
-        'extracting': '🎵',
         'extracting': '🎵',
         'loading-model': '🧠',
         'transcribing': '✍️',
@@ -171,12 +248,20 @@ async function extractAudio(videoFile, onProgress) {
         if (!audioBuffer || audioBuffer.length === 0) {
             throw new Error('Decoded audio buffer is empty');
         }
+        // Update runtime info: native decode succeeded
+        const info = detectRuntime();
+        info.audio = 'native decode';
+        updateRuntimeBadge(info);
     } catch (decodeErr) {
         console.warn('decodeAudioData failed, trying MediaRecorder fallback:', decodeErr.message);
         onProgress(30, 'Playing video to capture audio...');
         // Strategy 2: play video through a <video> element and capture via MediaRecorder
         try {
             audioBuffer = await captureAudioFromVideo(videoFile, onProgress);
+            // Update runtime info: used MediaRecorder fallback
+            const info = detectRuntime();
+            info.audio = 'MediaRecorder capture';
+            updateRuntimeBadge(info);
         } catch (captureErr) {
             console.error('MediaRecorder fallback also failed:', captureErr);
             // Strategy 3: last resort — try decodeAudioData on just the audio
@@ -413,44 +498,122 @@ async function transcribeAudio(audioData, onProgress) {
                 : loadErr.message));
     }
 
-    setStatus('transcribing', 30, 'Transcribing audio with AI...');
+    // ── Manual chunking with yield between chunks ──
+    // The single pipe() call with chunk_length_s blocks the main thread,
+    // preventing any DOM repaints — so progress never shows and the page
+    // appears frozen. Instead we split the audio manually, process each
+    // chunk individually, and yield to the browser between them.
 
-    // Show incremental progress during transcription
-    let fakeProgress = 30;
-    const progressInterval = setInterval(() => {
-        fakeProgress = Math.min(90, fakeProgress + 2);
-        setStatus('transcribing', fakeProgress, `Processing audio...`);
-    }, 1000);
+    const sampleRate = audioData.sampleRate;
+    const samples = audioData.samples;
+    const duration = samples.length / sampleRate;
+
+    // Build chunks: 30s windows stepping by 25s (5s overlap, matching stride)
+    const chunkSize = 30 * sampleRate;
+    const stepSize = 25 * sampleRate;
+    const chunks = [];
+    if (samples.length <= chunkSize) {
+        chunks.push({ data: samples, offsetSec: 0 });
+    } else {
+        for (let offset = 0; offset < samples.length; offset += stepSize) {
+            const end = Math.min(offset + chunkSize, samples.length);
+            // For the last chunk, slide back to get a full 30s window
+            const actualOffset = (end - offset < chunkSize && offset > 0)
+                ? Math.max(0, samples.length - chunkSize)
+                : offset;
+            const actualEnd = Math.min(actualOffset + chunkSize, samples.length);
+            if (!chunks.length || actualOffset !== chunks[chunks.length - 1].offsetSec * sampleRate) {
+                chunks.push({
+                    data: samples.slice(actualOffset, actualEnd),
+                    offsetSec: actualOffset / sampleRate,
+                });
+            }
+        }
+    }
+
+    const totalChunks = chunks.length;
+    let perChunkAvg = 0;
+
+    setStatus('transcribing', 30,
+        `Transcribing chunk 1 of ${totalChunks}...`);
+
+    let allRaw = [];
 
     try {
-        const result = await pipe(audioData.samples, {
-            chunk_length_s: 30,
-            stride_length_s: 5,
-            return_timestamps: true,
-        });
+        for (let i = 0; i < totalChunks; i++) {
+            const pct = 30 + Math.round(((i + 1) / totalChunks) * 58);
 
-        clearInterval(progressInterval);
+            // Yield to browser so DOM repaints with real progress
+            await new Promise(r => setTimeout(r, 10));
+
+            const chunkStart = Date.now();
+            const result = await pipe(chunks[i].data, {
+                // No internal chunking — we already chunked manually
+                return_timestamps: true,
+            });
+            const chunkElapsed = (Date.now() - chunkStart) / 1000;
+            perChunkAvg = perChunkAvg > 0
+                ? (perChunkAvg * i + chunkElapsed) / (i + 1)
+                : chunkElapsed;
+
+            // Adjust chunk timestamps to global timeline and filter overlap
+            const offset = chunks[i].offsetSec;
+
+            if (result.chunks) {
+                for (const c of result.chunks) {
+                    const start = (c.timestamp?.[0] ?? 0) + offset;
+                    const end = (c.timestamp?.[1] ?? start + 2) + offset;
+                    // Skip segments in the overlap with the previous chunk
+                    if (i > 0 && start < offset + 1.5) continue;
+                    allRaw.push({
+                        timestamp: [start, end],
+                        text: c.text || '',
+                    });
+                }
+            }
+
+            // Update status with real progress and remaining estimate
+            const remaining = totalChunks - i - 1;
+            const remEst = remaining > 0
+                ? ` (~${Math.round(perChunkAvg * remaining)}s remaining)`
+                : '';
+            setStatus('transcribing', pct,
+                i + 1 < totalChunks
+                    ? `Transcribing chunk ${i + 1} of ${totalChunks}${remEst}...`
+                    : 'Finishing transcription...');
+        }
+
         setStatus('transcribing', 100, 'Transcription complete!');
 
-        let subtitles = parseWhisperChunks(result.chunks);
+        let subtitles = parseWhisperChunks(allRaw);
 
-        if (subtitles.length === 0 && result.text) {
+        // Fallback: if no timestamped chunks, use full text
+        if (subtitles.length === 0 && allRaw.length > 0) {
+            const fullText = allRaw.map(c => c.text).join(' ').trim();
+            if (fullText) {
+                subtitles = [{
+                    index: 1,
+                    start: 0,
+                    end: duration,
+                    text: fullText,
+                }];
+            }
+        }
+
+        if (subtitles.length === 0) {
             subtitles = [{
                 index: 1,
                 start: 0,
-                end: 0,
-                text: result.text.trim(),
+                end: duration,
+                text: '(No speech detected)',
             }];
         }
 
         return {
-            fullText: result.text,
-            chunks: result.chunks,
+            fullText: subtitles.map(s => s.text).join(' '),
+            chunks: allRaw,
             subtitles,
         };
-    } catch (err) {
-        clearInterval(progressInterval);
-        throw err;
     }
 }
 
@@ -609,10 +772,8 @@ function updateExportButtons() {
     dom.copyBtn.dataset.content = content;
 }
 
-function renderVideoSubtitles() {
-    // We use a <track> element for proper in-video subtitles
-    // This is handled by setting the track.src above
-}
+// Subtitle overlay is driven by `updateCurrentSubtitle()` on `timeupdate`.
+// The `<track>` element handles proper in-video captions.
 
 // ─── Current Subtitle Overlay ────────────────────────────────────────────────
 

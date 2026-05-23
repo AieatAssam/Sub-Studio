@@ -529,8 +529,7 @@
             </div>
             <div class="header-info">
                 <span class="badge local">🔒 100% local</span>
-                <span class="badge">🧠 Whisper AI</span>
-                <span class="badge">⚡ WASM</span>
+                <span class="badge" id="runtime-badge">⚡ WASM</span>
             </div>
         </header>
 
@@ -615,13 +614,14 @@
     <footer>
         <div>
             Built with <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>
-            + <a href="https://ffmpegwasm.netlify.app/" target="_blank" rel="noopener">FFmpeg.wasm</a>
+            + <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank" rel="noopener">Web Audio API</a>
         </div>
         <div class="tech-tags">
             <span>🤖 No API keys</span>
             <span>🔒 Private by design</span>
             <span>⚡ 100% browser</span>
-            <span>📦 ~40MB Whisper AI (cached)</span>
+            <span>📦 ~40MB Whisper AI</span>
+            <span id="runtime-footer">🔍 detecting...</span>
         </div>
     </footer>
 
