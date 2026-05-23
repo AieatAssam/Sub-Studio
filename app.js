@@ -94,70 +94,43 @@ const dom = {
 // ─── Runtime Detection ───────────────────────────────────────────────────────
 
 function detectRuntime() {
-    const info = {
-        backend: '?',
-        gpu: false,
-        wasmSimd: false,
-        model: 'whisper-tiny.en',
-        audio: 'native',
-    };
+    try {
+        const info = {
+            gpu: !!(navigator.gpu && typeof navigator.gpu === 'object'),
+            model: 'whisper-tiny.en',
+            audio: 'native decode',
+        };
 
-    // Check WebGPU availability
-    if (navigator.gpu) {
-        info.gpu = true;
-    }
+        const isAndroid = /android/i.test(navigator.userAgent);
 
-    // Check WASM SIMD support
-    if (typeof WebAssembly !== 'undefined' && WebAssembly.validate) {
-        try {
-            // Minimal WASM module with SIMD instruction
-            const simdWasm = new Uint8Array([
-                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-                0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b,
-                0x03, 0x02, 0x01, 0x00,
-                0x0a, 0x0a, 0x01, 0x08, 0x00, 0x41, 0x00, 0xfd, 0x0f, 0x0b,
-            ]);
-            info.wasmSimd = WebAssembly.validate(simdWasm);
-        } catch {
-            // SIMD detection failed, assume no
+        if (isAndroid) {
+            info.backend = 'WASM (CPU, single-thread)';
+        } else if (info.gpu) {
+            info.backend = 'WebGPU (GPU)';
+        } else {
+            info.backend = 'WASM (CPU)';
         }
-    }
 
-    // Determine active backend
-    const isAndroid = /android/i.test(navigator.userAgent);
-    if (isAndroid) {
-        info.backend = 'WASM (CPU, single-thread)';
-    } else if (info.gpu) {
-        info.backend = 'WebGPU (GPU)';
-    } else if (info.wasmSimd) {
-        info.backend = 'WASM SIMD (CPU)';
-    } else {
-        info.backend = 'WASM (CPU)';
+        return info;
+    } catch (e) {
+        console.warn('Runtime detection failed:', e);
+        return { backend: 'WASM (CPU)', gpu: false, model: 'whisper-tiny.en', audio: 'native decode' };
     }
-
-    return info;
 }
 
 function updateRuntimeBadge(info) {
-    const badge = document.getElementById('runtime-badge');
-    const footer = document.getElementById('runtime-footer');
-    if (!badge && !footer) return;
+    try {
+        const badge = document.getElementById('runtime-badge');
+        const footer = document.getElementById('runtime-footer');
+        if (!badge && !footer) return;
 
-    const label = info.backend.startsWith('WebGPU')
-        ? '⚡ WebGPU'
-        : info.backend.startsWith('WASM')
-            ? '⚡ WASM'
-            : '⚡ ' + info.backend;
+        const label = info.gpu ? '⚡ WebGPU' : '⚡ WASM';
+        const title = info.backend + ' · ' + info.model + ' · audio: ' + info.audio;
 
-    const title = info.backend
-        + (info.wasmSimd ? ' + SIMD' : '')
-        + ' · ' + info.model
-        + ' · audio: ' + info.audio;
-
-    if (badge) {
-        badge.textContent = label;
-        badge.title = title;
-        // Add visual hint for accelerated backend
+        if (badge) {
+            badge.textContent = label;
+            badge.title = title;
+            // Add visual hint for accelerated backend
         badge.style.borderColor = info.gpu
             ? 'rgba(52,211,153,.3)'
             : 'var(--border)';
@@ -167,9 +140,6 @@ function updateRuntimeBadge(info) {
         footer.title = title;
     }
 }
-
-// Run detection on load
-updateRuntimeBadge(detectRuntime());
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
@@ -461,6 +431,13 @@ async function transcribeAudio(audioData, onProgress) {
     setStatus('loading-model', 5, 'Downloading AI model (~40MB, cached after first use)...');
 
     await loadTransformers();
+
+    // Re-detect backend now that Transformers.js is loaded (may have selected WebGPU vs WASM)
+    try {
+        updateRuntimeBadge(detectRuntime());
+    } catch (e) {
+        // Non-critical
+    }
 
     onProgress(30, 'Initializing transcription pipeline...');
 
@@ -1153,6 +1130,13 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         generateSampleAudio();
     });
+
+    // Detect and display runtime backend info
+    try {
+        updateRuntimeBadge(detectRuntime());
+    } catch (e) {
+        console.warn('Could not update runtime badge:', e);
+    }
 
     resetAll();
 });
