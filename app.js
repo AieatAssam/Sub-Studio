@@ -18,6 +18,8 @@ import {
     parseWhisperChunks, estimateDurationFromWav
 } from './subtitle-utils.js';
 
+const $ = (id) => document.getElementById(id);
+
 let pipeline;
 
 async function loadTransformers() {
@@ -131,13 +133,16 @@ function updateRuntimeBadge(info) {
             badge.textContent = label;
             badge.title = title;
             // Add visual hint for accelerated backend
-        badge.style.borderColor = info.gpu
-            ? 'rgba(52,211,153,.3)'
-            : 'var(--border)';
-    }
-    if (footer) {
-        footer.textContent = '🧠 ' + info.backend;
-        footer.title = title;
+            badge.style.borderColor = info.gpu
+                ? 'rgba(52,211,153,.3)'
+                : 'var(--border)';
+        }
+        if (footer) {
+            footer.textContent = '🧠 ' + info.backend;
+            footer.title = title;
+        }
+    } catch (e) {
+        console.warn('Badge update failed:', e);
     }
 }
 
@@ -591,6 +596,9 @@ async function transcribeAudio(audioData, onProgress) {
             chunks: allRaw,
             subtitles,
         };
+    } catch (chunkErr) {
+        console.error('Chunk transcription error:', chunkErr);
+        throw new Error('Transcription failed during chunk processing: ' + chunkErr.message);
     }
 }
 
