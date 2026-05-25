@@ -12,8 +12,8 @@
 // ─── Imports (loaded dynamically from CDN) ───────────────────────────────────
 
 import {
-    formatTime, formatTimeVTT,
-    generateSRT, generateVTT, generateTXT, generatePreview,
+    formatTimeVTT,
+    generateSRT, generateVTT, generateTXT,
     isValidVideoFile, isAudioFile, isFileSizeValid,
     parseWhisperChunks, estimateDurationFromWav
 } from './subtitle-utils.js';
@@ -58,10 +58,11 @@ const state = {
 
 // ─── DOM References ──────────────────────────────────────────────────────────
 
+const $ = (id) => document.getElementById(id);
+
 const dom = {
     uploadZone: $('upload-zone'),
     fileInput: $('file-input'),
-    uploadOverlay: $('upload-overlay'),
     videoPreview: $('video-preview'),
     subtitleTrack: $('subtitle-track'),
     currentSubtitle: $('current-subtitle'),
@@ -74,7 +75,6 @@ const dom = {
     formatSelect: $('format-select'),
     copyBtn: $('copy-btn'),
     downloadBtn: $('download-btn'),
-    editorToggle: $('editor-toggle'),
     videoContainer: $('video-container'),
     dropText: $('drop-text'),
     errorDisplay: $('error-display'),
@@ -690,6 +690,21 @@ function renderResults() {
     updateExportButtons();
 }
 
+function renderVideoSubtitles() {
+    if (dom.videoPreview._subtitleListener) {
+        dom.videoPreview.removeEventListener('timeupdate', dom.videoPreview._subtitleListener);
+    }
+    const listener = () => {
+        const ct = dom.videoPreview.currentTime;
+        const match = state.subtitles.find(s => ct >= s.start && ct < s.end);
+        dom.currentSubtitle.textContent = match ? match.text : '';
+    };
+    dom.videoPreview._subtitleListener = listener;
+    dom.videoPreview.addEventListener('timeupdate', listener);
+    // Run once immediately in case video is already playing
+    listener();
+}
+
 function renderSubtitleEditor() {
     dom.subtitleEditor.innerHTML = '';
     state.subtitles.forEach((sub, i) => {
@@ -757,20 +772,8 @@ function updateExportButtons() {
     dom.copyBtn.dataset.content = content;
 }
 
-// Subtitle overlay is driven by `updateCurrentSubtitle()` on `timeupdate`.
+// Subtitle overlay is driven by `renderVideoSubtitles()` on `timeupdate`.
 // The `<track>` element handles proper in-video captions.
-
-// ─── Current Subtitle Overlay ────────────────────────────────────────────────
-
-function updateCurrentSubtitle(time) {
-    if (!state.subtitles) {
-        dom.currentSubtitle.textContent = '';
-        return;
-    }
-
-    const active = state.subtitles.find(s => time >= s.start && time <= s.end);
-    dom.currentSubtitle.textContent = active ? active.text : '';
-}
 
 // ─── UI Event Handlers ───────────────────────────────────────────────────────
 
@@ -816,11 +819,6 @@ dom.uploadZone.addEventListener('drop', (e) => {
 // Click to upload
 dom.uploadZone.addEventListener('click', () => {
     dom.fileInput.click();
-});
-
-// Video time update
-dom.videoPreview.addEventListener('timeupdate', () => {
-    updateCurrentSubtitle(dom.videoPreview.currentTime);
 });
 
 // Format selector
