@@ -117,13 +117,18 @@ function detectRuntime() {
         };
 
         const isAndroid = /android/i.test(navigator.userAgent);
+        const hasSAB = typeof SharedArrayBuffer !== 'undefined';
 
         if (isAndroid) {
-            info.backend = 'WASM (CPU, single-thread)';
+            info.backend = hasSAB
+                ? 'WASM (CPU, ' + (navigator.hardwareConcurrency || 4) + ' threads)'
+                : 'WASM (CPU, single-thread)';
         } else if (info.gpu) {
             info.backend = 'WebGPU (GPU)';
         } else {
-            info.backend = 'WASM (CPU)';
+            info.backend = hasSAB
+                ? 'WASM (CPU, ' + (navigator.hardwareConcurrency || 4) + ' threads)'
+                : 'WASM (CPU, single-thread)';
         }
 
         return info;
@@ -139,7 +144,10 @@ function updateRuntimeBadge(info) {
         const footer = document.getElementById('runtime-footer');
         if (!badge && !footer) return;
 
-        const label = info.gpu ? '⚡ WebGPU' : '⚡ WASM';
+        const isMulti = info.backend.includes('threads');
+        const label = info.gpu
+            ? '⚡ WebGPU'
+            : '⚡ WASM' + (isMulti ? ' (MT)' : '');
         const title = info.backend + ' · ' + info.model + ' · audio: ' + info.audio;
 
         if (badge) {

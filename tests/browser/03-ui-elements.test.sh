@@ -138,12 +138,8 @@ else
     exit 1
 fi
 
-SUBTITLE_OVERLAY=$(agent-browser eval 'document.getElementById("current-subtitle")?.textContent' 2>&1 | raw)
-if [ -z "$SUBTITLE_OVERLAY" ]; then
-    echo "   ✅ PASS: Current subtitle overlay exists (empty)"
-else
-    echo "   ⚠️  Subtitle overlay has unexpected content: $SUBTITLE_OVERLAY"
-fi
+# Overlay removed — subtitles rendered natively via <track> element
+# Verified above by TRACK_ELEMENT check
 
 # ─── Test: Progress section elements ──────────────────────────────────────────
 echo "   ── Progress Section ──"
