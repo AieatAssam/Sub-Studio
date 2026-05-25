@@ -245,23 +245,7 @@
             display: block;
             object-fit: contain;
         }
-        #current-subtitle {
-            position: absolute;
-            bottom: 60px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,.75);
-            color: #fff;
-            padding: 8px 20px;
-            border-radius: 8px;
-            font-size: 1.1rem;
-            text-align: center;
-            max-width: 85%;
-            pointer-events: none;
-            text-shadow: 0 1px 3px rgba(0,0,0,.5);
-            backdrop-filter: blur(4px);
-            transition: opacity .15s ease;
-        }
+        /* Subtitle overlay removed — using native <track> element instead */
 
         /* ─── Progress ────────────────────────────────────────────────── */
         #progress-section {
@@ -496,11 +480,7 @@
                 font-size: .8rem;
             }
             header .header-info .badge:not(.local) { display: none; }
-            #current-subtitle {
-                font-size: .9rem;
-                bottom: 50px;
-                padding: 6px 14px;
-            }
+            /* Subtitle overlay removed — native <track> handles responsive */
             #video-container {
                 aspect-ratio: auto;
                 min-height: 200px;
@@ -580,7 +560,6 @@
             <video id="video-preview" controls preload="metadata">
                 <track id="subtitle-track" kind="subtitles" srclang="en" label="AI Subtitles" default />
             </video>
-            <div id="current-subtitle"></div>
         </div>
 
         <!-- ═══ Stats ═══ -->

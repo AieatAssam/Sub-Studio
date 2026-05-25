@@ -27,16 +27,30 @@ async function loadTransformers() {
     const mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
     pipeline = mod.pipeline;
 
-    // Android: default WebGL can hang during ONNX session creation.
-    // Preconfigure WASM + explicit CDN paths for ONNX Runtime binaries.
-    if (/android/i.test(navigator.userAgent)) {
-        mod.env.useBrowserCache = false;
-        if (mod.env.backends) {
-            mod.env.backends.onnx = mod.env.backends.onnx || {};
+    // Configure backend for optimal performance
+    if (mod.env.backends) {
+        mod.env.backends.onnx = mod.env.backends.onnx || {};
+
+        const isAndroid = /android/i.test(navigator.userAgent);
+        const hasWebGPU = !!(navigator.gpu && typeof navigator.gpu === 'object');
+        const useWasm = isAndroid || !hasWebGPU;
+
+        if (useWasm) {
+            // Multi-threaded WASM requires SharedArrayBuffer (cross-origin isolation
+            // or Chrome's relaxed COOP/COEP). GitHub Pages doesn't set isolation
+            // headers, so try it — threads silently degrade to 1 if unavailable.
+            const threads = (typeof SharedArrayBuffer !== 'undefined')
+                ? navigator.hardwareConcurrency || 4
+                : 1;
+
             mod.env.backends.onnx.wasm = {
-                numThreads: 1,
+                numThreads: threads,
                 wasmPaths: 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/',
             };
+
+            if (isAndroid) {
+                mod.env.useBrowserCache = false;
+            }
         }
     }
 }
@@ -65,7 +79,6 @@ const dom = {
     fileInput: $('file-input'),
     videoPreview: $('video-preview'),
     subtitleTrack: $('subtitle-track'),
-    currentSubtitle: $('current-subtitle'),
     progressSection: $('progress-section'),
     progressBar: $('progress-bar'),
     progressLabel: $('progress-label'),
@@ -657,7 +670,6 @@ async function runPipeline(videoFile) {
         // Step 3: Show results
         state.status = 'complete';
         renderResults();
-        renderVideoSubtitles();
 
     } catch (err) {
         console.error('Pipeline error:', err);
@@ -688,21 +700,6 @@ function renderResults() {
 
     // Show copy/download buttons
     updateExportButtons();
-}
-
-function renderVideoSubtitles() {
-    if (dom.videoPreview._subtitleListener) {
-        dom.videoPreview.removeEventListener('timeupdate', dom.videoPreview._subtitleListener);
-    }
-    const listener = () => {
-        const ct = dom.videoPreview.currentTime;
-        const match = state.subtitles.find(s => ct >= s.start && ct < s.end);
-        dom.currentSubtitle.textContent = match ? match.text : '';
-    };
-    dom.videoPreview._subtitleListener = listener;
-    dom.videoPreview.addEventListener('timeupdate', listener);
-    // Run once immediately in case video is already playing
-    listener();
 }
 
 function renderSubtitleEditor() {
@@ -772,8 +769,7 @@ function updateExportButtons() {
     dom.copyBtn.dataset.content = content;
 }
 
-// Subtitle overlay is driven by `renderVideoSubtitles()` on `timeupdate`.
-// The `<track>` element handles proper in-video captions.
+// The `<track>` element handles proper in-video captions natively.
 
 // ─── UI Event Handlers ───────────────────────────────────────────────────────
 
@@ -855,10 +851,7 @@ dom.clearBtn.addEventListener('click', () => {
     resetAll();
 });
 
-// Video ended - reset current subtitle
-dom.videoPreview.addEventListener('ended', () => {
-    dom.currentSubtitle.textContent = '';
-});
+// Video ended — track element handles cleanup automatically.
 
 // ─── URL Loading ────────────────────────────────────────────────────────────
 
@@ -1100,7 +1093,6 @@ function resetAll() {
     dom.statsSection.classList.add('hidden');
     dom.urlSection.classList.remove('hidden');
     dom.dropText.textContent = '📁 Drop a video file here or click to browse';
-    dom.currentSubtitle.textContent = '';
     dom.subtitleEditor.innerHTML = '';
     dom.fileInput.value = '';
     dom.urlInput.value = '';
