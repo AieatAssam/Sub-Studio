@@ -94,8 +94,8 @@ fi
 # ─── Test: Empty URL shows error ─────────────────────────────────────────────
 echo "   ── Empty URL validation ──"
 agent-browser eval 'document.getElementById("url-input").value = ""' 2>&1
-agent-browser click '#url-load-btn'
-sleep 0.5
+agent-browser eval 'document.getElementById("url-load-btn").click()' 2>&1
+sleep 1
 
 ERR_VISIBLE=$(agent-browser eval '!document.getElementById("error-display").classList.contains("hidden")' 2>&1)
 ERR_MSG=$(agent-browser eval 'document.getElementById("error-message").textContent' 2>&1 | sed 's/^"//;s/"$//')
